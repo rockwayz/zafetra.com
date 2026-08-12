@@ -39,6 +39,15 @@
 <meta name="twitter:title" content="Zafetra — Verification architecture for AI systems">
 <meta name="twitter:description" content="Zafetra builds verification architecture for AI systems: formal proof where verification is tractable, explicit composable bounds where it is not.">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%2064%2064%27%3E%3Crect%20width%3D%2764%27%20height%3D%2764%27%20fill%3D%27%23040404%27/%3E%3Cg%20fill%3D%27none%27%20stroke%3D%27%23F8F4F0%27%20stroke-width%3D%274.6%27%3E%3Cpath%20d%3D%27M32%206%20A26%2026%200%201%200%2031.1%2058%27/%3E%3Cpath%20d%3D%27M58%2032%20A26%2026%200%200%201%2034.7%2057.9%27/%3E%3C/g%3E%3Ccircle%20cx%3D%2732%27%20cy%3D%2732%27%20r%3D%2716%27%20fill%3D%27none%27%20stroke%3D%27%23F8F4F0%27%20stroke-width%3D%272.8%27/%3E%3Cline%20x1%3D%2732%27%20y1%3D%2716%27%20x2%3D%2732%27%20y2%3D%2748%27%20stroke%3D%27%23F8F4F0%27%20stroke-width%3D%272.8%27/%3E%3C/svg%3E">
+<!-- Both subsets are used on first paint: the field and the tagline are set in
+     JetBrains Mono and the fragments carry Greek. Without these the fonts are
+     discovered only when layout first needs them, which lands AFTER the field has
+     already been laid out once in the fallback monospace — a whole extra
+     full-document layout pass. `crossorigin` is required even same-origin, to
+     match the anonymous-mode fetch @font-face makes; without it the preload is
+     discarded and the console warns that it went unused. -->
+<link rel="preload" href="assets/asset-08.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/asset-05.woff2" as="font" type="font/woff2" crossorigin>
 <style>/* the two JetBrains Mono subsets the fragment field can actually request */
 /* greek */
 @font-face {
@@ -194,12 +203,6 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
 @keyframes ghostin-mid { from { opacity: 0; } to { opacity: var(--field-mid); } }
 @keyframes ghostin-aura { from { opacity: 0; } to { opacity: var(--field-aura); } }
 @keyframes litin { from { opacity: 0; } to { opacity: var(--field-lit); } }
-@media (min-resolution: 1.5dppx) {
-  /* NB: this repeats the base width verbatim, so it has always been a no-op —
-     but it is a live override, and it silently defeated the coverage floor
-     until it was updated too. Kept in step rather than deleted; it can go. */
-  .ghost { width: max(min(260vh, 190vw, 2400px), var(--field-floor)); }
-}
 /* ambient parallax is a fine-pointer garnish: touch devices keep the entrance
    fade but never pay for an always-on compositor loop */
 @media (hover: none), (pointer: coarse) {
@@ -242,10 +245,73 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
      hairline, so it needs this more than the letterforms do. */
   filter: drop-shadow(0 0 6px rgba(4, 4, 4, 1)) drop-shadow(0 0 16px rgba(4, 4, 4, 0.95))
           drop-shadow(0 0 34px rgba(4, 4, 4, 0.8));
-  /* opacity-only entrance — the shared `fade` keyframe animates transform and
-     would stomp the centring translate above */
-  animation: fadein 1.2s var(--ease-out) 0.28s both; }
+  /* The mark cannot use the shared `fade` keyframe — that animates a bare
+     translateY and would stomp the centring translate above. But opacity-only
+     meant the wordmark rose 16px while the mark sat still, so the two halves of
+     one lockup were out of register by 3-4px for ~200ms at ~60% opacity, during
+     the exact moment the eye is deciding whether they belong together. `markin`
+     restates the centring translate so it can carry the same rise, and the
+     timing is matched to the h1 so they move as one object. */
+  animation: markin 1.1s var(--ease-out) 0.20s both; }
 @keyframes fadein { from { opacity: 0; } }
+@keyframes markin { from { opacity: 0; transform: translate(50%, calc(-50% + 16px)); } }
+/* The typewriter tagline. position:absolute here is LOAD-BEARING, not styling:
+   .card is width:max-content and its right edge is what pins the mark, so a
+   tagline in normal flow that ever measured wider than the wordmark would widen
+   the card, drag the mark sideways and unlock the eye from it. Out of flow it
+   cannot touch the card's width, its height, or the vertical centring. */
+.tagline { position: absolute; top: 100%; left: 50%; margin: 1.15em 0 0;
+  /* centre on the card, then ride the wordmark's shift so it sits under the WORD
+     rather than under the card's unshifted box. px only — --word-shift-em is
+     expressed in h1 em and would resolve against this much smaller font-size.
+     The 0 fallback just means "unshifted" on a no-JS render. */
+  /* The fallback must MATCH the h1's fallback, not be zero: the h1 falls back to
+     the uncapped wish (1em x --word-shift-em, in H1 em), so a 0 here left the
+     tagline parked under the card's unshifted centre while the word had already
+     slid — 128.8px apart at 1440px on a real JS-disabled load. Restate the h1's
+     clamp so the em resolves against the same font-size. */
+  transform: translateX(calc(-50% - var(--word-shift-applied, calc(clamp(2.75rem, 11vw, 7rem) * var(--word-shift-em)))));
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  /* floor raised from 0.6rem: at phone widths the vw term is far below the floor,
+     so the floor IS the mobile size, and 0.6rem rendered too faint to read. */
+  font-size: clamp(0.72rem, 1.1vw, 0.82rem);
+  letter-spacing: 0.42em; text-indent: 0.42em; /* indent balances the trailing tracking */
+  text-transform: uppercase; color: var(--dim); white-space: nowrap;
+  /* same principle as the wordmark: separation from the field comes from a halo
+     on the glyphs, never from cutting a hole in the field behind them */
+  text-shadow: 0 0 6px rgba(4, 4, 4, 1), 0 0 14px rgba(4, 4, 4, 0.95),
+               0 0 28px rgba(4, 4, 4, 0.8);
+  animation: fadein 1.4s var(--ease-out) 0.9s both; }
+/* hidden, but it still occupies the full string's width. Without it the centred
+   box would re-centre on every keystroke and the text would jitter sideways as
+   it typed. The live text is overlaid on top at the same origin. */
+/* Which of the two stacked copies is visible is decided by JS. Until the
+   typewriter adds .tw-on to the <p> — i.e. with JS off, blocked, or broken — the
+   static sizer IS the tagline, and the permanently-empty live layer and its
+   caret stay hidden. Once .tw-on lands they swap. */
+.tw-sizer { visibility: visible; }
+.tw-on .tw-sizer { visibility: hidden; }
+.tw-live { display: none; position: absolute; left: 0; top: 0; white-space: pre; }
+.tw-on .tw-live { display: block; }
+.tw-caret { display: inline-block; width: 0.5em; height: 1em; margin-left: 0.06em;
+  background: var(--signal); vertical-align: -0.14em;
+  animation: caret 1.05s linear infinite; }
+@keyframes caret { 0%, 45% { opacity: 1; } 46%, 100% { opacity: 0; } }
+/* A real caret does not blink while keys are landing — it blinks when the typist
+   stops. Blinking throughout meant 53% of characters appeared with no caret
+   beside them, which is what made the typing read as flicker rather than input.
+   Solid mid-word; the blink returns for the hold and the empty gap. */
+.tw-typing .tw-caret { animation: none; opacity: 1; }
+/* Not `animation: none` — the @keyframes is the ONLY thing that ever sets
+   opacity:0, so killing it pins the caret at opacity 1 and leaves a solid orange
+   bar welded to the end of the finished words. That is exactly the "stray orange
+   block" the <=640px rule below already exists to prevent. */
+@media (prefers-reduced-motion: reduce) { .tw-caret { display: none; } }
+/* Below the breakpoint the tagline is static (see the typewriter gate in JS), and
+   a caret parked after finished words just reads as a stray orange block. */
+@media (max-width: 640px) { .tw-caret { display: none; } }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .logo .g { fill: none; stroke: var(--paper); stroke-linecap: butt; }
 .logo .tri { fill: var(--signal); }
 h1 { position: relative;
@@ -869,6 +935,14 @@ h1 { position: relative;
         <polygon class="tri" points="137,47 159,47 159,69"/>
       </svg>
       <h1>Zafetra</h1>
+      <p class="tagline">
+        <!-- reserves the full string's width so the box never resizes mid-type -->
+        <span class="tw-sizer" aria-hidden="true">COMING SOON</span>
+        <span class="tw-live" aria-hidden="true"><span class="tw-text"></span><span class="tw-caret"></span></span>
+        <!-- the accessible copy: static, so assistive tech is not handed a new
+             string every 100ms as the animation types and deletes -->
+        <span class="sr-only">Coming soon</span>
+      </p>
     </div>
   </div>
 </main>
@@ -888,7 +962,26 @@ h1 { position: relative;
     if (effectsOn) return;
     effectsOn = true;
     document.documentElement.classList.add('has-orb');
-    if (!lit) {
+    scheduleLitBuild();
+  }
+  // Building the torch clone is cloneNode(true) over three SVGs — 567 <text>
+  // nodes — plus two setAttribute calls on each to tint it: ~1100 DOM writes.
+  // applyGates() runs at parse, so on every fine-pointer load that ran
+  // synchronously BEFORE FIRST PAINT and doubled the document's text-node count
+  // before anything was on screen. Deferred to idle instead: the ambient field
+  // paints straight away and the clone lands in a gap. Every consumer of it is
+  // already behind `if (reveal)`, so the torch is simply inert until it exists.
+  var litQueued = false;
+  function scheduleLitBuild() {
+    if (lit || litQueued) return;
+    litQueued = true;
+    var go = function () { litQueued = false; buildLit(); };
+    if (window.requestIdleCallback) requestIdleCallback(go, { timeout: 2000 });
+    else setTimeout(go, 250);
+  }
+  function buildLit() {
+    if (lit) return;
+    {
       // The lit layer is a pristine clone shown through a fixed torch-window.
       // The window's mask is static; the clone counter-translates inside it —
       // every per-frame update is a transform, so nothing re-rasterizes.
@@ -959,25 +1052,55 @@ h1 { position: relative;
   // Pointer physics — frame-rate independent damping so the torch trails
   // identically on 60Hz and 120Hz displays.
   var tx = window.innerWidth / 2, ty = window.innerHeight * 0.45;
-  var cx = tx, cy = ty, seen = false, ticking = false, last = 0;
+  // `seen` is the COLD-START flag (has the damped point ever been placed?) and
+  // `shown` is the VISIBILITY flag (is the cursor system on screen?). They used
+  // to be one variable, which is what made a pointer re-entry teleport.
+  var cx = tx, cy = ty, fx = tx, fy = ty, seen = false, shown = false, ticking = false, last = 0;
   function tick(now) {
-    if (!effectsOn) { ticking = false; return; }
-    var dt = Math.min(now - last, 50) || 16;
+    // zero the speed on the way out. This is the ONLY place speed.v decays, so
+    // returning with it still high freezes it for the life of the page — and the
+    // glitch wave reads it, and would stay in 'spin' mode forever.
+    if (!effectsOn) { ticking = false; speed.v = 0; return; }
+    // Math.min clamped the TOP of dt but nothing clamped the bottom, and dt is
+    // routinely NEGATIVE: `last` is performance.now() taken inside the mousemove
+    // handler, and the rAF that handler schedules runs in the SAME frame, whose
+    // timestamp is the frame START and therefore precedes it. Measured over 18
+    // resume events: -0.2 to -2.5ms, 18/18 negative. A negative dt makes
+    // k = 1 - exp(-dt/85) NEGATIVE, so the torch, the reveal window and the
+    // parallax all kick AWAY from the pointer for one frame. The magnitude scales
+    // with main-thread load, so it is worst on frames that are already janky.
+    var dt = Math.min(Math.max(now - last, 0), 50) || 16;
     last = now;
     var k = 1 - Math.exp(-dt / 85);
     var dx = (tx - cx) * k, dy = (ty - cy) * k;
     cx += dx; cy += dy;
     speed.v += (Math.sqrt(dx * dx + dy * dy) / dt * 16 - speed.v) * 0.1;
     torch.style.transform = 'translate(' + cx.toFixed(1) + 'px, ' + cy.toFixed(1) + 'px)';
+    // The field is HEAVIER than the torch and gets its own follower. Sharing the
+    // torch's 85ms constant meant background and foreground glow were one object
+    // at two gains, which on a ±6px excursion reads as lag rather than depth.
+    // It also removes the first-pointer snap: the whole 2340px field jumped 5.0px
+    // in ONE frame from a standing start. fx/fy are deliberately NOT teleported,
+    // so the field glides in instead.
+    var kf = 1 - Math.exp(-dt / 300);
+    fx += (tx - fx) * kf; fy += (ty - fy) * kf;
     // Damped parallax: the ring field recedes from the cursor, max ±6px.
-    var px = ((cx / window.innerWidth - 0.5) * -12).toFixed(1), py = ((cy / window.innerHeight - 0.5) * -8).toFixed(1);
+    // COVERAGE INVARIANT: fx is a k in (0,1] damped tracker of tx in
+    // [0, innerWidth], so it can never leave that interval and px is hard-bounded
+    // to ±6 — which the raw cx could NOT guarantee once dt went negative (see the
+    // Math.max(dt, 0) above). Same for fy.
+    var px = ((fx / window.innerWidth - 0.5) * -12).toFixed(1), py = ((fy / window.innerHeight - 0.5) * -8).toFixed(1);
     ghostWrap.style.transform = 'translate(' + px + 'px,' + py + 'px)';
     if (reveal) {
       reveal.style.transform = 'translate(' + cx.toFixed(1) + 'px, ' + cy.toFixed(1) + 'px)';
       revealInner.style.transform = 'translate(' + (240 - cx).toFixed(1) + 'px,' + (240 - cy).toFixed(1) + 'px)';
       litWrap.style.transform = 'translate(' + px + 'px,' + py + 'px)';
     }
-    if (Math.abs(tx - cx) < 0.2 && Math.abs(ty - cy) < 0.2 && speed.v < 0.02) {
+    // fq is the pointer error at which the parallax write changes by less than
+    // half its 0.1px quantum: 12 * dfx / innerWidth < 0.05 => dfx < w/240.
+    var fq = window.innerWidth / 240, fqy = window.innerHeight / 160;
+    if (Math.abs(tx - cx) < 0.2 && Math.abs(ty - cy) < 0.2 &&
+        Math.abs(tx - fx) < fq && Math.abs(ty - fy) < fqy && speed.v < 0.02) {
       speed.v = 0; ticking = false; return; // settled — stop burning frames
     }
     requestAnimationFrame(tick);
@@ -1071,8 +1194,11 @@ h1 { position: relative;
   window.addEventListener('mousemove', function (e) {
     if (!effectsOn) return;
     tx = e.clientX; ty = e.clientY;
-    if (!seen) {
-      seen = true; cx = tx; cy = ty;
+    // cold start ONLY: nothing is on screen yet, so placing the damped point on
+    // the pointer is invisible. Never done on re-entry — see hideOrb().
+    if (!seen) { seen = true; cx = tx; cy = ty; }
+    if (!shown) {
+      shown = true;
       orb.style.opacity = '1';
       torch.style.opacity = '1';
       if (reveal) reveal.style.opacity = '1';
@@ -1080,7 +1206,19 @@ h1 { position: relative;
     orb.style.transform = 'translate(' + tx + 'px, ' + ty + 'px)';
     if (!ticking) { ticking = true; last = performance.now(); requestAnimationFrame(tick); }
   }, { passive: true });
-  function hideOrb() { orb.style.opacity = '0'; seen = false; }
+  // The pointer left the window, or the window lost focus. Fade the WHOLE cursor
+  // system: the torch is a 360px glow and #reveal a 480px colour window, and
+  // leaving those lit with no cursor under them reads as a stuck frame. `seen` is
+  // deliberately NOT reset — resetting it snapped cx/cy onto wherever the pointer
+  // came back in, which teleported the torch and the reveal window (~1220px in one
+  // frame) and jolted the whole parallax field with them. Leaving cx/cy alone lets
+  // the existing 85ms damping ease them back inside the 0.35s opacity fade.
+  function hideOrb() {
+    shown = false;
+    orb.style.opacity = '0';
+    torch.style.opacity = '0';
+    if (reveal) reveal.style.opacity = '0';
+  }
   document.documentElement.addEventListener('mouseleave', hideOrb);
   window.addEventListener('blur', hideOrb);
   document.addEventListener('mousedown', function () { orb.classList.add('down'); }, { passive: true });
@@ -1136,31 +1274,68 @@ h1 { position: relative;
   });
   var SPIRAL_LEN = 24073;   // measured arc length of the path
   var BAND = 2600; // width of the glitching front, in path units
+  // ---- raster budget ----------------------------------------------------
+  // Mutating a fragment re-rasterises its bounding box, and a <text> riding a
+  // textPath has an ARC for a bounding box, not a line of type: at 1440x900 the
+  // 95 on-screen core fragments' boxes sum to 10.07Mpx against a 1.30Mpx
+  // viewport. Measured on GPU with the parallax running, fragment writes/second
+  // vs frame rate:
+  //     0->119   10->119   20->107   40->69   80->28   195->12-20
+  // The wave was issuing ~195/s. Deliberately NOT a token bucket: `nodes` is in
+  // ascending startOffset order, so a bucket always feeds the band's TRAILING
+  // edge and the leading front stops glitching, and it would spend budget on
+  // off-screen fragments, which the compositor culls and which A/B'd as FREE.
+  // Cut the write COUNT structurally instead. DENSITY is the dial — raise toward
+  // 1 for a denser front and re-read the curve above for the frame rate it buys.
+  var DENSITY = 0.5;
   function junkNode(n) {
+    if (n.dirty) return;                  // already junk: re-junking buys a repaint, not a picture
+    if (Math.random() >= DENSITY) return; // thin the front rather than slow it
     n.el.innerHTML = '<tspan fill="' + colors[(Math.random() * colors.length) | 0] + '">' + esc(codeJunk(n.original.length)) + '</tspan>';
     n.dirty = true;
   }
   function resolveNode(n, step) {
-    if (step >= 3) { n.el.textContent = n.original; n.dirty = false; n.resolving = false; return; }
+    // One decode pass instead of three. The chain used to cost 4 writes per
+    // fragment (steps 0,1,2 plus the restore) and resolve traffic was 68% of all
+    // writes in a classified 6s trace; it now costs 2. Every chain still
+    // TERMINATES unconditionally at the restore, so no fragment can be stranded
+    // as junk and the 900ms hard-heal in `loop` stays a backstop, not a crutch.
+    if (step >= 1) { n.el.textContent = n.original; n.dirty = false; n.resolving = false; return; }
     var junk = codeJunk(n.original.length);
     var out = '';
     for (var i = 0; i < n.original.length; i++) {
-      out += Math.random() < (step + 1) / 3 ? esc(n.original[i]) : esc(junk[i]);
+      out += Math.random() < 0.5 ? esc(n.original[i]) : esc(junk[i]);
     }
     n.el.innerHTML = '<tspan fill="' + colors[(Math.random() * colors.length) | 0] + '">' + out + '</tspan>';
-    setTimeout(function () { resolveNode(n, step + 1); }, 60);
+    setTimeout(function () { resolveNode(n, step + 1); }, 90 + Math.random() * 60);
   }
   function startResolve(n) {
     if (n.resolving) return;
     n.resolving = true;
-    resolveNode(n, 0);
+    // Jittered on purpose: every node leaving the band starts its chain inside
+    // the SAME forEach pass, so a fixed delay dropped the whole cohort's writes
+    // into one 8.33ms slot. A burst of 3 writes in a frame is free; a burst of 30
+    // drops the frame 77% of the time. `resolving` is still set SYNCHRONOUSLY, so
+    // the `n.dirty && !n.resolving` guard in the idle-heal path is unchanged, and
+    // the whole chain finishes inside ~270ms, well within that path's 900ms window.
+    setTimeout(function () { resolveNode(n, 0); }, Math.random() * 120);
   }
   var mode = 'idle', wavePos = -1, lastNow = 0, lastMut = 0;
   function loop(now) {
     if (document.hidden) { lastNow = now; schedule(); return; }
-    var v = speed.v;
+    // effects can be switched off mid-session (mouse unplugged, tablet undocked,
+    // reduced motion or high contrast toggled in the OS). tick() stops running
+    // then, so read a disabled field as motionless rather than trusting a number
+    // nothing is updating any more.
+    var v = effectsOn ? speed.v : 0;
     // Hysteresis: enter spin fast, leave slow — no mode flapping near a threshold.
-    var newMode = mode === 'spin' ? (v < 0.3 ? 'idle' : 'spin') : (v > 0.9 ? 'spin' : 'idle');
+    // speed.v is px per 16ms frame. 0.9 was ~70 px/s and 0.3 ~23 px/s — below any
+    // real pointer motion, so the wave was the STEADY STATE, not an accent, and
+    // the field re-rastered continuously. Worse, tick() clamps dt at 50ms, so once
+    // the wave janks the frame the speed estimate is inflated ~1.5x and keeps the
+    // wave on: a feedback loop with no smooth state. 4 = ~310 px/s (a deliberate
+    // sweep), 1.5 = ~117 px/s to leave. Gap kept wide so the mode cannot flap.
+    var newMode = mode === 'spin' ? (v < 1.5 ? 'idle' : 'spin') : (v > 4 ? 'spin' : 'idle');
     if (newMode !== mode) {
       mode = newMode;
       if (mode === 'spin' && wavePos < 0) { wavePos = 0; lastNow = now; }
@@ -1205,6 +1380,84 @@ h1 { position: relative;
     else requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
+
+})();
+
+// Typewriter tagline. Deliberately its OWN top-level IIFE: the block above
+// returns early on `!fineQ.matches` (it guards the pointer-driven glitch wave),
+// so anything appended inside it silently never runs on a touch device — which
+// is exactly where this must still render, just without animating.
+(function () {
+  var reduceQ = window.matchMedia('(prefers-reduced-motion: reduce)');
+  // Typewriter tagline — types a letter at a time, holds, deletes a letter at a
+  // time, repeats. The string lives here rather than in the markup so the served
+  // HTML never contains a half-typed word; the accessible copy is the static
+  // .sr-only node, and everything animated is aria-hidden.
+  (function typewriter() {
+    var out = document.querySelector('.tw-text');
+    var caret = document.querySelector('.tw-caret');
+    if (!out) return;
+    // hand the tagline over to the live layer (see .tw-on in the stylesheet).
+    var tagEl = document.querySelector('.tagline');
+    if (tagEl) tagEl.classList.add('tw-on');
+    var FULL = 'COMING SOON';
+    // Animate only on a larger form factor. On a phone the type is small and a
+    // visitor arrives at a random point in the cycle — most of which is a partly
+    // deleted string or nothing at all — so it reads as broken rather than as an
+    // effect. There the words simply sit there. 641px pairs with the 640px
+    // breakpoint the field already uses.
+    var animQ = window.matchMedia('(min-width: 641px)');
+    var timer = null, running = false, started = false, n = 0, dir = 1;
+    // Measured cycle: 1512ms typing + 1800ms hold + 798ms deleting + 700ms empty
+    // = ~4700ms, of which the COMPLETE words were on screen only 34-38% of the
+    // time. For the rest the page's only sentence was a truncated fragment or
+    // gone entirely. On a page whose whole copy is two words that is the
+    // strongest "unfinished" signal it emits. Inverted: complete words ~62%.
+    var TYPE = 110, DEL = 45, HOLD = 4200, GAP = 420;
+    function settle() {                     // static: the finished words, no caret
+      if (timer) { clearTimeout(timer); timer = null; }
+      running = false;
+      if (tagEl) tagEl.classList.remove('tw-typing');
+      out.textContent = FULL;
+      if (caret) caret.style.display = 'none';
+    }
+    function tick() {
+      timer = null;
+      if (reduceQ.matches || !animQ.matches) { settle(); return; }
+      if (document.hidden) { timer = setTimeout(tick, 400); return; }  // don't type to a tab nobody is watching
+      n += dir;
+      out.textContent = FULL.slice(0, n);
+      var wait;
+      // solid caret mid-word, blinking at both ends of the cycle
+      if (tagEl) tagEl.classList.toggle('tw-typing', n > 0 && n < FULL.length);
+      if (dir > 0 && n >= FULL.length) { dir = -1; wait = HOLD; }
+      else if (dir < 0 && n <= 0) { dir = 1; wait = GAP; }
+      else wait = (dir > 0 ? TYPE : DEL) + Math.random() * 55;  // uneven, like a hand on keys
+      timer = setTimeout(tick, wait);
+    }
+    function apply() {                      // also runs on rotate / resize across the breakpoint
+      if (reduceQ.matches || !animQ.matches) { settle(); return; }
+      if (running) return;
+      if (caret) caret.style.display = '';
+      // settle() leaves the FULL string on screen. Restarting at n = 0 made the
+      // next tick write FULL.slice(0, 1) — the words hard-cut to a bare "C" every
+      // time a window crossed the 641px breakpoint. Resume by DELETING out of the
+      // settled state instead; n = FULL.length with dir = -1 makes the first tick
+      // an ordinary deletion step.
+      running = true;
+      // before the first tick there is no text yet, so a blinking caret alone in
+      // empty space is just a stray mark — hold it solid until typing starts.
+      if (tagEl) tagEl.classList.add('tw-typing');
+      if (started) { n = FULL.length; dir = -1; } else { n = 0; dir = 1; }
+      timer = setTimeout(tick, started ? 600 : 1500);  // first run waits for the entrance
+      started = true;
+    }
+    apply();
+    if (animQ.addEventListener) {
+      animQ.addEventListener('change', apply);
+      reduceQ.addEventListener('change', apply);
+    }
+  })();
 })();
 </script>
 </body></html>
