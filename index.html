@@ -1,6 +1,28 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8">
+<!-- CSP. Must stay directly under <meta charset> — a meta policy only governs
+     what is fetched AFTER the parser reads it. Derived from what this page
+     actually loads, which is very little: one inline script, two inline styles,
+     two self-hosted woff2, and two data: SVGs (the favicon and the CSS noise
+     texture). Nothing external, no fetch/XHR, no forms, no frames, so
+     default-src 'none' is the floor and every allowance below is deliberate.
+
+     'unsafe-inline' on script-src is the weak point and it is a considered
+     choice: hashes are strictly stronger, but this page is one inline block
+     under active design and a stale hash fails SILENTLY — the script is simply
+     blocked and the lockup, torch and eye-lock all die while the page still
+     renders. To switch once the design settles:
+       openssl dgst -sha256 -binary <(extracted script body) | openssl base64 -A
+     and replace 'unsafe-inline' with 'sha256-<digest>'.
+
+     NOT set here, because meta CSP cannot: frame-ancestors (clickjacking),
+     report-uri, sandbox. Those need real response headers, which GitHub Pages
+     does not offer. See the security notes for the Cloudflare route. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<!-- never leak the full URL to another origin; this page links out to nothing
+     today, so this is purely a guard against a future link doing it. -->
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#040404">
 <meta name="color-scheme" content="dark">
@@ -43,6 +65,79 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-swift: cubic-bezier(0.22, 1, 0.36, 1);
   --serif: Georgia, 'Iowan Old Style', 'Times New Roman', Times, serif;
+  /* the wordmark face: a Didone, chased after the A24 logo — extreme thick/thin
+     contrast, hairline thins, flat unbracketed serifs. NOT the grotesque A24
+     sets body copy in; that one is NB International Pro, a licensed Neubau face
+     we do not own. Didone is the logo's genus and ships with the OS, so the
+     look costs no webfont and no licence. Didot on macOS and iOS, Bodoni MT
+     where Office put it, Georgia as the last serif standing. */
+  --wordmark: Didot, 'Bodoni 72', 'Bodoni MT', Georgia, 'Times New Roman', serif;
+  /* both of these are FONT METRICS, re-derived at runtime by lockMarkAndEye().
+     the values here are only the no-JS fallback, correct for Didot — the first
+     stack member, i.e. what macOS and iOS render. no single static value can be
+     right for a font *stack*, and this stack is unusually wide: measured over
+     this same string at 112px the required eye offset is 2.503em on Didot but
+     2.1515em on Bodoni 72, a 39px spread. Georgia wants 2.3426em, Times New
+     Roman 2.3089em. Pick one and the rest drift, so JS measures per render. */
+  --ink-inset: 0.5105em;
+  --eye-dx: 2.503em;
+  /* how far left the wordmark slides out from under the mark, in h1 em. applied
+     as `left` on the h1 — RELATIVE offset, not a transform, for two reasons: it
+     does not disturb layout, so the card keeps shrink-wrapping the unshifted
+     text and the mark (pinned to the card's right edge) stays exactly where it
+     was; and it leaves the h1's transform free for the `fade` entrance, which
+     the mark had to opt out of for precisely that reason. 0 restores the
+     original overlapped lockup.
+     Unitless because lockMarkAndEye() has to do the em→px maths itself: this is
+     a WISH, and it gets capped to the room that actually exists. Below ~400px
+     the font-size clamp floors at 2.75rem while the viewport keeps narrowing,
+     so a shift that fits at 375px ran the Z off the left edge at 320px. */
+  --word-shift-em: 1.15;
+  /* coverage floor for the fragment field. the field is centred on the MARK,
+     not on the viewport, so it sits --eye-dx to the right of centre and has to
+     span half the width PLUS that shift again to still reach the left edge —
+     hence 100vw + 2×--eye-dx. the box is square, so 100vh covers the vertical.
+     without this the ground shows through at short, wide aspects: at 1600×420
+     the field ran x 516..1608 and left 516px of bare #040404 down the left.
+     the +16/+12 are the parallax plus slack: it drifts the wrap ±6px across and
+     ±4px down (the *-12 and *-8 in the mousemove handler), so 2× that is the
+     real requirement — a floor that only just reached the edge at rest would
+     open that much bare ground at full drift. the extra 2px per side absorbs
+     rounding: --eye-dx is written to 2dp, and at 1600×420 an exactly-tight
+     floor undershot the left edge by 0.0001px at full drift. */
+  --field-floor: max(calc(100vw + 2 * var(--eye-dx) + 16px), calc(100vh + 12px));
+  /* the field's three depth layers, and the torch clone. each of these literals
+     used to appear TWICE — once on the rule, once as the `to` of its entrance
+     keyframe — so tuning one by hand drifted the pair apart and the field would
+     animate to one value and settle at another. One name each, read from both.
+     These are the ORIGINAL strengths. They were briefly dimmed to 75% to calm
+     the overlap against the wordmark; that was the wrong lever — the field is
+     meant to be this present, and legibility comes from the halo on the type
+     itself (see h1 / .logo below), not from starving the background. */
+  --field-core: 0.28;
+  --field-mid: 0.21;
+  --field-aura: 0.15;
+  --field-lit: 0.95;
+  /* the torch palette. The ambient field stays the flat --dim grey it always
+     was; only the CLONE revealed inside the torch window is tinted, so colour
+     exists exactly where the cursor is and nowhere else. Hue is mapped along
+     each layer's own traversal of the spiral, so a sweep of the coil walks the
+     range — move the cursor and the band under it shifts. Painted once when the
+     clone is built, never per frame: the torch's whole performance story is
+     that moving it is a pure transform, and a live filter would re-rasterize
+     the field every frame. Span 0 gives a single flat hue. */
+  --torch-hue-from: 18;
+  --torch-hue-span: 292;
+  --torch-sat: 72%;
+  --torch-light: 63%;
+  /* every fragment also carries its OWN opacity attribute (~0.40–0.47, which is
+     what gives the field its depth). Multiplied by the layer opacity over a
+     near-black ground that lands near 15% effective, and hue does not survive
+     that — the tint was applying correctly and still rendering as grey. The
+     clone's per-fragment opacities are scaled by this, clamped at 1, which
+     keeps their relative depth while lifting the whole set into a range where
+     colour reads. 1 = leave them alone (and the colour will not show). */
+  --torch-opacity-boost: 2.1;
 }
 @supports (color: color(display-p3 1 0 0)) { :root { --signal: color(display-p3 0.93 0.52 0.17); } }
 * { box-sizing: border-box; }
@@ -72,25 +167,38 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
 .ghost { position: absolute; top: 50%; left: 50%; right: auto;
   /* the coil's eye is locked to the mark. viewBox is "-150 -150 500 500" and the
      spiral centre is user-space (100,100) = the exact centre of the svg box, so
-     centring the box centres the eye. the mark sits on the wordmark's final A:
-       offset = wordmarkWidth/2 - inkInset = 5.635em/2 - 0.475em = 2.3425em
-     "ZAFETRA" measures 5.635em wide at every size (same string, same face), so
-     this holds at any aspect. font-size below makes 1em == one h1 font-size. */
+     centring the box centres the eye. the mark sits on the wordmark's final A,
+     so the box wants shifting by wordmarkWidth/2 - inkInset — both of which are
+     metrics of whichever face actually rendered. lockMarkAndEye() measures the
+     glyph and writes --eye-dx in px; the em fallback above only covers no-JS.
+     the offset is independent of .ghost's own width (it cancels out of the
+     -50%), so no vh/vw term survives and the lock holds at every aspect.
+     font-size below makes 1em == one h1 font-size for that fallback. */
   font-size: clamp(2.75rem, 11vw, 7rem);
-  transform: translate(calc(-50% + 2.3425em), -50%);
-  width: min(260vh, 190vw, 2400px); height: auto; opacity: 0.28; pointer-events: none; user-select: none; -webkit-user-select: none; font-family: 'JetBrains Mono', ui-monospace, monospace; animation: ghostin 2.2s ease-out 0.5s both; }
-.ghost-lit { opacity: 0.38; animation: litin 2.2s ease-out 0.5s both; }
+  transform: translate(calc(-50% + var(--eye-dx)), -50%);
+  width: max(min(260vh, 190vw, 2400px), var(--field-floor)); height: auto; opacity: var(--field-core); pointer-events: none; user-select: none; -webkit-user-select: none; font-family: 'JetBrains Mono', ui-monospace, monospace; animation: ghostin 2.2s ease-out 0.5s both; }
+/* Deliberately NO mix-blend-mode here. `screen` is the obvious way to make hues
+   glow on a near-black ground, and it looked good — but A/B'd over 4 alternating
+   runs it DOUBLED the median frame time while dragging the torch, 8.3ms → 16.6ms
+   against a 16.7ms budget. The torch is built so moving it is a pure transform;
+   a blend mode makes the compositor re-blend three full-size SVG layers every
+   frame. The alpha boost alone gets the colour there: at ~0.8 effective, hsl(18)
+   composites to rgb(184,107,75) over #040404, which is plainly orange. */
+.ghost-lit { opacity: var(--field-lit); animation: litin 2.2s ease-out 0.5s both; }
 #reveal { position: fixed; left: 0; top: 0; width: 480px; height: 480px; margin: -240px 0 0 -240px; z-index: 5; pointer-events: none; display: none; opacity: 0; will-change: transform; transition: opacity 0.35s ease; -webkit-mask-image: radial-gradient(circle at center, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 72%); mask-image: radial-gradient(circle at center, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 72%); }
 .has-orb #reveal { display: block; }
 .reveal-inner { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; will-change: transform; }
-.ghost.mid  { opacity: 0.21; animation: ghostin-mid 2.2s ease-out 0.5s both; }
-.ghost.aura { opacity: 0.15; animation: ghostin-aura 2.2s ease-out 0.5s both; }
-@keyframes ghostin { from { opacity: 0; } to { opacity: 0.28; } }
-@keyframes ghostin-mid { from { opacity: 0; } to { opacity: 0.21; } }
-@keyframes ghostin-aura { from { opacity: 0; } to { opacity: 0.15; } }
-@keyframes litin { from { opacity: 0; } to { opacity: 0.38; } }
+.ghost.mid  { opacity: var(--field-mid); animation: ghostin-mid 2.2s ease-out 0.5s both; }
+.ghost.aura { opacity: var(--field-aura); animation: ghostin-aura 2.2s ease-out 0.5s both; }
+@keyframes ghostin { from { opacity: 0; } to { opacity: var(--field-core); } }
+@keyframes ghostin-mid { from { opacity: 0; } to { opacity: var(--field-mid); } }
+@keyframes ghostin-aura { from { opacity: 0; } to { opacity: var(--field-aura); } }
+@keyframes litin { from { opacity: 0; } to { opacity: var(--field-lit); } }
 @media (min-resolution: 1.5dppx) {
-  .ghost { width: min(260vh, 190vw, 2400px); }
+  /* NB: this repeats the base width verbatim, so it has always been a no-op —
+     but it is a live override, and it silently defeated the coverage floor
+     until it was updated too. Kept in step rather than deleted; it can go. */
+  .ghost { width: max(min(260vh, 190vw, 2400px), var(--field-floor)); }
 }
 /* ambient parallax is a fine-pointer garnish: touch devices keep the entrance
    fade but never pay for an always-on compositor loop */
@@ -100,7 +208,7 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
   .ghost.aura { animation: ghostin-aura 2.2s ease-out 0.5s both; }
 }
 @media (max-width: 640px) {
-  .ghost { width: min(220vh, 1600px); }   /* right/left untouched: the base rule centres on the mark */
+  .ghost { width: max(min(220vh, 1600px), var(--field-floor)); }   /* right/left untouched: the base rule centres on the mark */
 }
 @media print {
   .ghost-wrap, #orb, #torch, #reveal, body::after { display: none !important; }
@@ -109,35 +217,52 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
   h1 { color: #040404; }
 }
 .wrap { width: 100%; max-width: 1240px; margin: 0 auto; position: relative; z-index: 6; }
-/* shrink-wrapped and auto-centred ON PURPOSE. updateClearZone() computes the
-   ellipse centre as rc.left + maxW/2, which assumes the widest child starts at
-   the card's left edge — true for a flex-start card, false for a centred one.
-   Letting the card size to its widest child keeps that assumption valid, so the
-   clear zone stays centred on the lockup without touching the JS. */
+/* shrink-wrapped and auto-centred ON PURPOSE: the card's right edge IS the
+   unshifted h1's right edge, which is what pins the mark. the word shift moves
+   the text with a relative offset precisely so it does NOT resize this box and
+   drag the mark along with it. */
 .card { display: flex; flex-direction: column; align-items: center; text-align: center;
   width: max-content; max-width: 100%; margin: 0 auto; position: relative; }
-/* the mark. deliberately NOT class="mark" — updateClearZone() skips .mark when
-   measuring, which would fit the ellipse to the wordmark alone and let the
-   fragment field cut straight through the logo. this gets measured. */
+/* the mark. (It used to matter that this was NOT class="mark", because the
+   clear zone skipped .mark when fitting its ellipse and would have let the
+   field cut through the logo. That mask is gone, and nothing reads .mark any
+   more — the class is free if you ever want it.) */
 .logo { position: absolute; z-index: 1; margin: 0;
   /* same clamp as h1 so 1em here == one h1 font-size, and the placement holds
      at every viewport without re-tuning */
   font-size: clamp(2.75rem, 11vw, 7rem);
   width: 1.9em; height: 1.9em;
-  /* the final glyph's INK centre sits 0.475em from the h1's right edge: its
-     advance is 0.81em but 0.14em of that is trailing letter-spacing. the card
-     shrink-wraps to the h1, so the card's right edge is the h1's right edge. */
-  top: 50%; right: 0.475em; transform: translate(50%, -50%);
+  /* the final glyph's INK centre sits --ink-inset from the h1's right edge: its
+     advance less the trailing letter-spacing, halved. that distance is a
+     property of the FACE, not of the layout, so lockMarkAndEye() measures it
+     per render rather than trusting a constant. the card shrink-wraps to the
+     h1, so the card's right edge is the h1's right edge. */
+  top: 50%; right: var(--ink-inset); transform: translate(50%, -50%);
+  /* same glyph-level halo as the h1, in the form SVG strokes take. the ring is
+     hairline, so it needs this more than the letterforms do. */
+  filter: drop-shadow(0 0 6px rgba(4, 4, 4, 1)) drop-shadow(0 0 16px rgba(4, 4, 4, 0.95))
+          drop-shadow(0 0 34px rgba(4, 4, 4, 0.8));
   /* opacity-only entrance — the shared `fade` keyframe animates transform and
      would stomp the centring translate above */
   animation: fadein 1.2s var(--ease-out) 0.28s both; }
 @keyframes fadein { from { opacity: 0; } }
 .logo .g { fill: none; stroke: var(--paper); stroke-linecap: butt; }
 .logo .tri { fill: var(--signal); }
-h1 { position: relative; z-index: 2; margin: 0; font-family: var(--serif); font-weight: 400;
+h1 { position: relative;
+  /* JS writes --word-shift-applied in px, already capped to the available room.
+     the fallback is the uncapped wish, which is what a no-JS render gets. */
+  left: calc(-1 * var(--word-shift-applied, calc(1em * var(--word-shift-em))));
+  z-index: 2; margin: 0; font-family: var(--wordmark); font-weight: 400;
   font-size: clamp(2.75rem, 11vw, 7rem); line-height: 1; letter-spacing: 0.14em;
   text-indent: 0.14em; /* balances the trailing tracking so the word optically centers */
   color: var(--paper); text-transform: uppercase;
+  /* legibility over the fragment field, done at the GLYPH instead of by cutting
+     a hole in the field. Stacked blurs of the ground colour hug each letterform,
+     so the separation follows the type and never reads as a shape sitting behind
+     it — which is exactly what the old elliptical clear zone did wrong. Costs no
+     fragments: the field runs at full strength right up to and behind the word. */
+  text-shadow: 0 0 6px rgba(4, 4, 4, 1), 0 0 14px rgba(4, 4, 4, 1),
+               0 0 30px rgba(4, 4, 4, 0.95), 0 0 60px rgba(4, 4, 4, 0.8);
   animation: fade 1.1s var(--ease-out) 0.20s both; }
 @keyframes fade { from { opacity: 0; transform: translateY(16px); } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -771,11 +896,39 @@ h1 { position: relative; z-index: 2; margin: 0; font-family: var(--serif); font-
       litWrap.className = 'ghost-wrap';
       litWrap.style.maskImage = 'none';
       litWrap.style.webkitMaskImage = 'none';
+      // Torch palette, read once. A CSS `fill` would be simpler but every
+      // fragment carries an inline fill="#A8A199" presentation attribute and we
+      // want a DIFFERENT hue per fragment, not one colour for the layer — so
+      // the attribute gets rewritten on the clone. The ambient field is
+      // untouched; only this copy is coloured.
+      // document.documentElement, NOT the `root` var — that is declared further
+      // down this IIFE, so at enableEffects() time (applyGates runs it during
+      // parse) it is hoisted but still undefined, and getComputedStyle(undefined)
+      // throws and takes the whole script with it.
+      var pal = getComputedStyle(document.documentElement);
+      var hFrom = parseFloat(pal.getPropertyValue('--torch-hue-from')) || 0;
+      var hSpan = parseFloat(pal.getPropertyValue('--torch-hue-span')) || 0;
+      var sat = (pal.getPropertyValue('--torch-sat') || '70%').trim();
+      var light = (pal.getPropertyValue('--torch-light') || '62%').trim();
+      var boost = parseFloat(pal.getPropertyValue('--torch-opacity-boost')) || 1;
       ghostWrap.querySelectorAll('.ghost').forEach(function (g) {
         var c = g.cloneNode(true);
         var defs = c.querySelector('defs');
         if (defs) defs.remove(); // textPath hrefs resolve to the originals' defs
         c.classList.add('ghost-lit');
+        // hue by position along THIS layer's run of the spiral. Indexing per
+        // layer rather than across all three keeps the three in step spatially
+        // — they trace the same coil, so equal progress means equal hue.
+        var frags = c.querySelectorAll('text');
+        var n = frags.length;
+        for (var k = 0; k < n; k++) {
+          var hue = hFrom + (n > 1 ? (k / (n - 1)) * hSpan : 0);
+          frags[k].setAttribute('fill', 'hsl(' + hue.toFixed(1) + ', ' + sat + ', ' + light + ')');
+          // lift this fragment out of the alpha floor that was eating the hue,
+          // keeping its depth relative to its neighbours
+          var o = parseFloat(frags[k].getAttribute('opacity'));
+          if (o) frags[k].setAttribute('opacity', Math.min(1, o * boost).toFixed(3));
+        }
         litWrap.appendChild(c);
         if (!lit) lit = c;
       });
@@ -829,29 +982,91 @@ h1 { position: relative; z-index: 2; margin: 0; font-family: var(--serif); font-
     }
     requestAnimationFrame(tick);
   }
-  // Donut mask: transparent over the card (no design overlay), field visible
-  // around it, soft fade at the far rim. Recomputed on load and resize.
+  // still needed by lockMarkAndEye(), which measures the card's left edge to cap
+  // how far the wordmark may slide before it runs off a narrow viewport.
   var card = document.querySelector('.card');
-  function updateClearZone() {
-    var rc = card.getBoundingClientRect();
-    var maxW = 0, top = Infinity, bottom = -Infinity;
-    for (var i = 0; i < card.children.length; i++) {
-      var ch = card.children[i];
-      if (ch.classList.contains('mark')) continue;
-      var r = ch.getBoundingClientRect();
-      maxW = Math.max(maxW, r.width);
-      top = Math.min(top, r.top);
-      bottom = Math.max(bottom, r.bottom);
-    }
-    var cx = rc.left + maxW / 2, cy = (top + bottom) / 2;
-    var rx = maxW / 2 + 120, ry = (bottom - top) / 2 + 40;
-    var g = 'radial-gradient(ellipse ' + rx.toFixed(0) + 'px ' + ry.toFixed(0) + 'px at ' + cx.toFixed(0) + 'px ' + cy.toFixed(0) + 'px, transparent 0%, transparent 85%, rgba(0,0,0,0.8) 95%, #000 100%)';
-    ghostWrap.style.webkitMaskImage = g;
-    ghostWrap.style.maskImage = g;
+  // The mark parks on the wordmark's final glyph, and the coil's eye parks on
+  // the mark. Both hops are pure font metrics — the glyph's advance and the
+  // word's width in whichever face the stack actually resolved to — so a
+  // constant pins the layout to one font on one platform. Measured over this
+  // string at 112px the eye offset wants 2.503em under Didot but 2.1515em under
+  // Bodoni 72 and 2.3426em under Georgia: a 39px unlock on any machine that
+  // skips the first stack entry. Measure the glyph instead of trusting a number.
+  var root = document.documentElement;
+  var h1el = document.querySelector('h1');
+  var mainEl = document.querySelector('main');
+  var logoEl = document.querySelector('.logo');
+  function lockMarkAndEye() {
+    var tn = h1el && h1el.firstChild;
+    if (!tn || tn.nodeType !== 3 || !tn.length) return;
+    var cs = getComputedStyle(h1el);
+    var fs = parseFloat(cs.fontSize);
+    var ls = parseFloat(cs.letterSpacing) || 0;   // trails the final glyph too
+    var rg = document.createRange();
+    rg.setStart(tn, tn.length - 1); rg.setEnd(tn, tn.length);
+    var lg = rg.getBoundingClientRect();
+    var h1r = h1el.getBoundingClientRect();
+    if (!fs || !lg.width || !h1r.width) return;   // not laid out yet — keep CSS
+    // ink centre of the final glyph, with its trailing tracking discounted
+    var ink = lg.left + (lg.width - ls) / 2;
+    // hop 0: cap the wordmark's leftward shift to the room in front of it. The
+    // card's left edge is independent of the shift (a relative offset moves no
+    // layout), so this cannot feed back on itself. Uncapped, the wish overruns
+    // the viewport once the font-size clamp floors on narrow screens — measured
+    // at 320px it put the Z at x=-23 and main's overflow:hidden ate it.
+    var wantShift = (parseFloat(getComputedStyle(root).getPropertyValue('--word-shift-em')) || 0) * fs;
+    var room = Math.max(0, card.getBoundingClientRect().left - 8);
+    root.style.setProperty('--word-shift-applied', Math.min(wantShift, room).toFixed(1) + 'px');
+    // hop 1: the mark. `right: <inset>` plus translateX(50%) puts its centre
+    // exactly <inset> in from the card's right edge, and the card shrink-wraps
+    // to the h1 — so this lands the mark square on the glyph.
+    root.style.setProperty('--ink-inset', ((h1r.right - ink) / fs).toFixed(4) + 'em');
+    // hop 2: the eye follows the MARK, not the glyph. Those were one point
+    // until the word shift slid the wordmark out from under the mark — the glyph
+    // is still what ANCHORS the mark, but no longer where the mark sits. So
+    // read back where it actually landed instead of re-deriving it. That read
+    // follows the write above and costs a sync layout; it buys a lock that
+    // holds for any shift, and keeps this honest to its name.
+    var mr = logoEl.getBoundingClientRect();
+    var markCentre = mr.left + mr.width / 2;
+    // .ghost sits at left:50% of the wrap and its own width cancels out of the
+    // -50%, so the shift it needs is just the gap from the wrap's centre to the
+    // mark. No vh/vw term, hence aspect-independent. Reference main, not
+    // .ghost-wrap: parallax puts a live transform on the wrap, and measuring
+    // through it would bake the current drift into the constant — leaving the
+    // eye off-mark once the pointer settles back. main is untransformed and is
+    // the wrap's containing block (inset:0, no border), so its centre IS the
+    // wrap's undrifted centre.
+    var wr = mainEl.getBoundingClientRect();
+    root.style.setProperty('--eye-dx', (markCentre - (wr.left + wr.width / 2)).toFixed(2) + 'px');
   }
-  window.addEventListener('resize', updateClearZone);
-  window.addEventListener('load', updateClearZone);
-  updateClearZone();
+  // There is deliberately NO clear zone any more. A mask used to punch an
+  // ellipse of the field out from behind the lockup; every setting of it was
+  // wrong in one direction or the other — wide enough to read as a bare black
+  // lozenge, or tight enough that fragments butted the letterforms. The job it
+  // was doing (keeping the type readable) now belongs to the text-shadow on the
+  // h1 and the drop-shadow on .logo, which hug the glyphs and so never show up
+  // as a shape. .ghost-wrap declares mask-image: none in CSS, so removing the
+  // writer is all that was needed. ~20 lines of per-resize measuring and
+  // gradient-string building went with it.
+  function relayout() { lockMarkAndEye(); }
+  // A resize burst fires this dozens of times per drag, and measuring inside the
+  // event reads a layout that is still settling — a reading taken mid-reflow
+  // would latch, since nothing recomputes until the next resize. Coalesce to one
+  // measurement per frame: fewer forced layouts, and the frame we do measure is
+  // one the browser has finished laying out.
+  var relayoutQueued = false;
+  function scheduleRelayout() {
+    if (relayoutQueued) return;
+    relayoutQueued = true;
+    requestAnimationFrame(function () { relayoutQueued = false; relayout(); });
+  }
+  window.addEventListener('resize', scheduleRelayout);
+  window.addEventListener('load', relayout);
+  relayout();
+  // a late webfont swap moves the glyph under us. nothing in the lockup loads a
+  // webfont today, but licensing NB International would make this load-bearing.
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
 
   window.addEventListener('mousemove', function (e) {
     if (!effectsOn) return;
