@@ -311,6 +311,21 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
    unfloors, so the override only ever applies inside the floored regime. */
 @media (max-width: 380px) {
   :root { --word-shift-fallback: 0px; }
+  /* ...and with the shift gone, the mark has nowhere to be. The lockup's whole
+     geometry is that the mark parks where the final glyph's ink centre sits
+     UNSHIFTED and the word then slides left out from under it — the shift IS
+     the gap between them. Zero the shift and the two coincide exactly: measured
+     at 320px, mark centre 270.1px against glyph ink centre 270.1px, so the ring
+     sits squarely on the A rather than beside it.
+     Moving the ring clear instead is not available here: the wordmark is 265px
+     and the ring 84px, so at 320px they need 349px of a 320px viewport. There
+     is no placement that both clears the letter and stays on screen, and a ring
+     centred on a letterform is worse than no ring. So below the threshold the
+     mark is simply not drawn — and ONLY when the JS never placed it. It is
+     aria-hidden, so nothing is lost to assistive tech either way.
+     .mark-locked is set at the END of lockMarkAndEye(), after all three hops
+     measured, so any early return there is treated as "unplaced" too. */
+  html:not(.mark-locked) .logo { display: none; }
 }
 @media print {
   .ghost-wrap, #orb, #torch, #reveal, body::after { display: none !important; }
@@ -1332,9 +1347,10 @@ try { (function () {
     }
     requestAnimationFrame(tick);
   }
-  // still needed by lockMarkAndEye(), which measures the card's left edge to cap
-  // how far the wordmark may slide before it runs off a narrow viewport.
-  var card = document.querySelector('.card');
+  // The card is deliberately NOT held here any more. It was, as a proxy for the
+  // h1's left edge in the shift cap, and that proxy is only valid while the h1
+  // fits inside the card — which max-width:100% stops being true below ~295px.
+  // The cap measures the h1 directly now; nothing else needed the reference.
   // The mark parks on the wordmark's final glyph, and the coil's eye parks on
   // the mark. Both hops are pure font metrics — the glyph's advance and the
   // word's width in whichever face the stack actually resolved to — so a
@@ -1360,12 +1376,23 @@ try { (function () {
     // ink centre of the final glyph, with its trailing tracking discounted
     var ink = lg.left + (lg.width - ls) / 2;
     // hop 0: cap the wordmark's leftward shift to the room in front of it. The
-    // card's left edge is independent of the shift (a relative offset moves no
-    // layout), so this cannot feed back on itself. Uncapped, the wish overruns
-    // the viewport once the font-size clamp floors on narrow screens — measured
-    // at 320px it put the Z at x=-23 and main's overflow:hidden ate it.
+    // room is independent of the shift (a relative offset moves no layout), so
+    // this cannot feed back on itself. Uncapped, the wish overruns the viewport
+    // once the font-size clamp floors on narrow screens — measured at 320px it
+    // put the Z at x=-23 and main's overflow:hidden ate it.
+    //
+    // The room is measured on the H1 ITSELF, not on the card. Using the card's
+    // left edge as a proxy was wrong below ~295px: `.card` carries max-width:100%
+    // (see its rule), so once main's content box is narrower than the wordmark
+    // the card stops shrink-wrapping and clamps, while the h1 overflows it. At
+    // 280px the card measured 24..256 — 232 wide — against an h1 265 wide, so
+    // card.left overstated the available room by 16.6px and the cap happily left
+    // the Z at x=-8.6. The card is only the h1's box while the h1 fits inside it.
+    // Taking the h1's rendered left and removing whatever offset is currently
+    // applied gives its static position directly: no proxy, and self-correcting
+    // on every resize because it subtracts the offset that is live at the time.
     var wantShift = (parseFloat(getComputedStyle(root).getPropertyValue('--word-shift-em')) || 0) * fs;
-    var room = Math.max(0, card.getBoundingClientRect().left - 8);
+    var room = Math.max(0, (h1r.left - (parseFloat(cs.left) || 0)) - 8);
     root.style.setProperty('--word-shift-applied', Math.min(wantShift, room).toFixed(1) + 'px');
     // hop 1: the mark. `right: <inset>` plus translateX(50%) puts its centre
     // exactly <inset> in from the card's right edge, and the card shrink-wraps
@@ -1400,6 +1427,12 @@ try { (function () {
     // wrap's undrifted centre.
     var wr = mainEl.getBoundingClientRect();
     root.style.setProperty('--eye-dx', (markCentre - (wr.left + wr.width / 2)).toFixed(2) + 'px');
+    // Reached only when all three hops measured cleanly, so it is the honest
+    // signal for "the mark is where it belongs". The narrow-viewport rule in the
+    // stylesheet hides the mark WITHOUT this class — see it for why. Set last on
+    // purpose: every early return above leaves it unset, and an unplaced mark
+    // should be treated exactly like an unmeasured one.
+    root.classList.add('mark-locked');
   }
   // There is deliberately NO clear zone any more. A mask used to punch an
   // ellipse of the field out from behind the lockup; every setting of it was
