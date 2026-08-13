@@ -3,29 +3,54 @@
 <meta charset="utf-8">
 <!-- CSP. Must stay directly under <meta charset> — a meta policy only governs
      what is fetched AFTER the parser reads it. Derived from what this page
-     actually loads, which is very little: one inline script, two inline styles,
-     two self-hosted woff2, and two data: SVGs (the favicon and the CSS noise
-     texture). Nothing external, no fetch/XHR, no forms, no frames, so
-     default-src 'none' is the floor and every allowance below is deliberate.
+     actually loads, which is very little: one inline script, one inline data
+     block, two inline styles, two self-hosted woff2, and two data: SVGs (the
+     favicon and the CSS noise texture). Nothing external, no fetch/XHR, no
+     forms, no frames, so default-src 'none' is the floor and every allowance
+     below is deliberate.
 
-     'unsafe-inline' on script-src is the weak point and it is a considered
-     choice: hashes are strictly stronger, but this page is one inline block
-     under active design and a stale hash fails SILENTLY — the script is simply
-     blocked and the lockup, torch and eye-lock all die while the page still
-     renders. To switch once the design settles:
-       openssl dgst -sha256 -binary <(extracted script body) | openssl base64 -A
-     and replace 'unsafe-inline' with 'sha256-<digest>'.
+     'unsafe-inline' IS GONE, from both script-src and style-src. It was a
+     considered choice while it lasted, and the reason it lasted was not that
+     hashes are weaker — they are strictly stronger — but that a stale hash
+     fails SILENTLY: the block is dropped, the page still renders, and the
+     lockup, torch and eye-lock are simply absent with nothing to see. On a page
+     under active design that is a worse bet than the weaker directive.
+     What changed is not the design settling, it is that tools/make-csp.py now
+     re-derives every hash from the bytes and fails the build if the policy and
+     the file disagree. The silent failure has an owner, so the stronger policy
+     is the cheap choice. Never hand-edit a digest below; run the tool.
+     The recipe it mechanises, kept for reference:
+       openssl dgst -sha256 -binary <(extracted element body) | openssl base64 -A
 
-     WHEN YOU DO THAT, COMPUTE TWO HASHES, NOT ONE. script-src governs every
-     <script> ELEMENT, including the application/ld+json block further down —
-     CSP does not exempt it for being data rather than code. Hash the ld+json
-     block as well and list both digests, or the structured data is silently
-     dropped and the page keeps rendering as if nothing were wrong.
+     FOUR HASHES, and the count is the whole point. script-src governs every
+     <script> ELEMENT, the application/ld+json block included — CSP does not
+     exempt it for being data rather than code — so both are listed, or the
+     structured data is dropped while the page renders as if nothing were wrong.
+     style-src lists both <style> elements. The tool asserts the set is exact.
 
-     NOT set here, because meta CSP cannot: frame-ancestors (clickjacking),
-     report-uri, sandbox. Those need real response headers, which GitHub Pages
-     does not offer. See the security notes for the Cloudflare route. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+     NO 'self' ON EITHER. Neither directive needs it: there is no <script src>
+     and no <link rel=stylesheet> in this document, so 'self' would permit a
+     class of load that does not exist. font-src and img-src keep theirs, because
+     the woff2 files and the data: URIs are real. Same principle throughout —
+     allow what is used, nothing else.
+     Hashes cover <style> ELEMENTS, not style="" ATTRIBUTES, and the script adds
+     none: it writes through CSSOM (element.style.x, setProperty), which CSP does
+     not govern at all. make-csp.py asserts that stays true, because a style
+     attribute added later would be dropped as quietly as a stale hash.
+
+     STILL NOT SET, because meta CSP cannot express them at all: frame-ancestors
+     (clickjacking), report-uri, sandbox. Those need real response headers. This
+     is now settled rather than pending: the site is served by GitHub Pages
+     through its own Fastly edge — measured, `server: GitHub.com`, `via: 1.1
+     varnish`, no `cf-ray` — and Pages serves no custom headers. zafetra.com is
+     DNS-only at Cloudflare, so nothing is proxying that could add them. The meta
+     policy is therefore the ceiling, and this is the whole of it.
+     Revisit when the site gains real interactions — a form, a login, anything
+     accepting input — because that reopens the hosting question on its own
+     merits, and the header layer comes with whatever answers it. Until then a
+     brochure page with no frames and no inputs is not what clickjacking is
+     for. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-l/nJM/El7NAoQh3sdit8zSrA51IyicjKT8jkbh7+fyI=' 'sha256-jP+9Do3WSD07QM2vpl3sfgxshOXhLPADs+SpyrXqM9w='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-vNzoKpTSRhHOX/pfz906ZZcPA6uR1oiANKbAhKyBn50='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">

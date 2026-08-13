@@ -1,11 +1,18 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<!-- Same policy as index.html. This page loads even less — one woff2, no
-     script at all — but the floor stays default-src 'none' and every
-     allowance is still deliberate. script-src is dropped entirely: there is
-     no inline script here, so nothing needs it. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<!-- Same policy as index.html, derived the same way by tools/make-csp.py — run
+     it, never hand-edit the digest. This page loads even less: one woff2, one
+     inline style, one data: SVG favicon, and no script at all. The floor stays
+     default-src 'none' and every allowance is still deliberate.
+     script-src is absent rather than empty: with no <script> element here there
+     is nothing to allow, and default-src 'none' already blocks any that appears.
+     style-src carries the hash of the one <style> below instead of
+     'unsafe-inline'; there are no style="" attributes and no script to add any.
+     'self' is not listed because nothing external is loaded — see index.html's
+     comment for the reasoning, and for why frame-ancestors is settled, not
+     pending. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'sha256-jk5eBBx1g3XBphyY7sCdkeFiUWZ7hXdOm69+ThkFhGs='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#040404">
