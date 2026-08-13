@@ -211,7 +211,10 @@ body::after { content: ''; position: fixed; inset: 0; z-index: 5; pointer-events
 @media (forced-colors: active) { #torch, #orb, #reveal, body::after { display: none !important; } .has-orb main { cursor: auto !important; } }
 /* layered ground: warm tint toward the card, vignette at the base */
 main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 64px 24px; background: radial-gradient(52% 58% at 50% 100%, rgba(4, 4, 4, 0) 0%, rgba(0, 0, 0, 0.5) 100%), radial-gradient(120% 90% at 32% 18%, #0a0705 0%, #040404 62%); }
-.ghost-wrap { position: absolute; inset: 0; pointer-events: none; will-change: transform; -webkit-mask-image: none; mask-image: none; }
+/* No will-change here: promotion is handed to JS, which sets it on this element
+   AND on the torch clone for the length of a run plus a delay. See the layer
+   promotion block in the script. */
+.ghost-wrap { position: absolute; inset: 0; pointer-events: none; -webkit-mask-image: none; mask-image: none; }
 /* ambient layer; the lit clone above it is revealed only inside the torch radius
    and is never scrambled — the cursor shows pristine code while the ambient
    copy drifts and mutates */
@@ -238,7 +241,7 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
 .ghost-lit { opacity: var(--field-lit); }
 #reveal { position: fixed; left: 0; top: 0; width: 480px; height: 480px; margin: -240px 0 0 -240px; z-index: 5; pointer-events: none; display: none; opacity: 0; will-change: transform; transition: opacity 0.35s ease; -webkit-mask-image: radial-gradient(circle at center, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 72%); mask-image: radial-gradient(circle at center, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 72%); }
 .has-orb #reveal { display: block; }
-.reveal-inner { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; will-change: transform; }
+.reveal-inner { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; }
 .ghost.mid  { opacity: var(--field-mid); }
 .ghost.aura { opacity: var(--field-aura); }
 /* The field has NO entrance fade (owner call 2026-08-13): every layer paints at
@@ -246,17 +249,13 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
    exact steady state the old ghostin/litin fills settled into — including the
    clone mid/aura layers resolving to ambient opacity via .ghost.mid's higher
    specificity, which the current look was tuned against. */
-/* ambient parallax is a fine-pointer garnish: the field's follower only runs
-   once effects are enabled, which requires a fine pointer. .ghost-wrap is the
-   element that actually carries will-change: transform, so it is the one to
-   un-promote here — otherwise a touch device holds a full-viewport composited
-   layer for a transform that never runs. The .ghost svgs were never promoted
-   (resetting them was a no-op) and the old .ccw-el selector matched no element
-   in the document. #reveal and .reveal-inner need no gate: both are built on
-   the enableEffects path, so neither exists on a coarse pointer. */
-@media (hover: none), (pointer: coarse) {
-  .ghost-wrap { will-change: auto; }
-}
+/* The coarse-pointer will-change reset that used to live here is GONE, and
+   deliberately not replaced. It existed because .ghost-wrap carried a static
+   will-change that a touch device could never use; now nothing declares one.
+   The only writer is the JS promotion block, which runs solely while the
+   pointer follower is running — and that requires a fine pointer, so a coarse
+   device is never promoted in the first place. Re-adding a reset here would be
+   dead CSS: it cannot clear the inline style the JS sets anyway. */
 @media (max-width: 640px) {
   .ghost { width: max(min(220vh, 1600px), var(--field-floor)); }   /* right/left untouched: the base rule centres on the mark */
 }
@@ -1023,6 +1022,50 @@ h1 { position: relative;
   var effectsOn = false;
   var lit = null, reveal = null, revealInner = null, litWrap = null;
 
+  // ---- layer promotion --------------------------------------------------
+  // `will-change: transform` is a standing request for a GPU texture, and the
+  // two field wrappers are full-viewport layers, so the choice is a real one
+  // with no free option:
+  //   held statically (what this was) the texture is retained for the life of
+  //     the page whether or not anything ever moves;
+  //   dropped the instant the pointer settles, every new sweep re-promotes two
+  //     full-viewport layers at exactly the moment the frame budget is tightest.
+  // So the promotion outlives the run instead: set when a run starts, released
+  // only if nothing has moved for RELEASE_MS after it settles, and the pending
+  // release is cancelled the moment motion resumes — a release that lands on a
+  // sweep already in flight is the failure this is built to avoid.
+  //
+  // RELEASE_MS = 3000 IS A STARTING VALUE, NOT A MEASURED ONE. Nothing here was
+  // profiled and no frame-rate claim attaches to it. Raise it if re-sweeping
+  // after a pause hitches; lower it to hand the texture back sooner.
+  //
+  // #orb, #torch and #reveal keep their static will-change: they are small and,
+  // under .has-orb, always live.
+  //
+  // The two wrappers are listed EXPLICITLY rather than selected by class.
+  // litWrap is a .ghost-wrap clone, so anything class-based would move under us,
+  // and it does not exist until buildLit() runs at idle — which can land in the
+  // middle of a run, hence the catch-up in buildLit().
+  var RELEASE_MS = 3000;
+  var releaseTimer = null, promoted = false;
+  function promotionTargets() { return litWrap ? [ghostWrap, litWrap] : [ghostWrap]; }
+  function promote() {
+    if (releaseTimer) { clearTimeout(releaseTimer); releaseTimer = null; }
+    if (promoted) return;
+    promoted = true;
+    promotionTargets().forEach(function (el) { el.style.willChange = 'transform'; });
+  }
+  function schedulePromotionRelease() {
+    if (releaseTimer) clearTimeout(releaseTimer);
+    releaseTimer = setTimeout(releasePromotion, RELEASE_MS);
+  }
+  function releasePromotion() {
+    if (releaseTimer) { clearTimeout(releaseTimer); releaseTimer = null; }
+    if (!promoted) return;
+    promoted = false;
+    promotionTargets().forEach(function (el) { el.style.willChange = ''; });
+  }
+
   function enableEffects() {
     if (effectsOn) return;
     effectsOn = true;
@@ -1054,6 +1097,12 @@ h1 { position: relative;
       litWrap.className = 'ghost-wrap';
       litWrap.style.maskImage = 'none';
       litWrap.style.webkitMaskImage = 'none';
+      // buildLit() runs at idle and can land mid-run, after promote() has
+      // already gone round the targets — so the clone catches up here. Keyed on
+      // `promoted` rather than `ticking` on purpose: it must also be promoted
+      // when it is built inside the post-settle release window, so that the
+      // pending release finds both wrappers and clears them together.
+      if (promoted) litWrap.style.willChange = 'transform';
       // Torch palette, read once. A CSS `fill` would be simpler but every
       // fragment carries an inline fill="#A8A199" presentation attribute and we
       // want a DIFFERENT hue per fragment, not one colour for the layer — so
@@ -1103,6 +1152,13 @@ h1 { position: relative;
   function disableEffects() {
     effectsOn = false;
     document.documentElement.classList.remove('has-orb');
+    // The gate can flip mid-session (mouse unplugged, reduced motion or high
+    // contrast switched on). From here tick() returns at its first line, so a
+    // scheduled release would still fire but a run in flight never reaches its
+    // settle branch — drop the promotion now, or an inline will-change is
+    // stranded on two full-viewport layers for the life of the page. The CSS
+    // cannot mop this up: an inline style outranks a stylesheet rule.
+    releasePromotion();
   }
   function applyGates() {
     if (fineQ.matches && !reduceQ.matches && !fcQ.matches) enableEffects(); else disableEffects();
@@ -1166,7 +1222,9 @@ h1 { position: relative;
     var fq = window.innerWidth / 240, fqy = window.innerHeight / 160;
     if (Math.abs(tx - cx) < 0.2 && Math.abs(ty - cy) < 0.2 &&
         Math.abs(tx - fx) < fq && Math.abs(ty - fy) < fqy && speed.v < 0.02) {
-      speed.v = 0; ticking = false; return; // settled — stop burning frames
+      // settled — stop burning frames. The promotion is NOT dropped here; it is
+      // handed to a timer so a quick re-sweep finds the layers still promoted.
+      speed.v = 0; ticking = false; schedulePromotionRelease(); return;
     }
     requestAnimationFrame(tick);
   }
@@ -1280,7 +1338,9 @@ h1 { position: relative;
       if (reveal) reveal.style.opacity = '1';
     }
     orb.style.transform = 'translate(' + tx + 'px, ' + ty + 'px)';
-    if (!ticking) { ticking = true; last = performance.now(); requestAnimationFrame(tick); }
+    // promote() also cancels any release still pending from the last settle,
+    // which is what stops a release landing on a sweep that has just restarted.
+    if (!ticking) { ticking = true; promote(); last = performance.now(); requestAnimationFrame(tick); }
   }, { passive: true });
   // The pointer left the window, or the window lost focus. Fade the WHOLE cursor
   // system: the torch is a 360px glow and #reveal a 480px colour window, and
