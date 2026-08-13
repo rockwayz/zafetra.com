@@ -281,7 +281,7 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
    tagline in normal flow that ever measured wider than the wordmark would widen
    the card, drag the mark sideways and unlock the eye from it. Out of flow it
    cannot touch the card's width, its height, or the vertical centring. */
-.tagline { position: absolute; top: 100%; left: 50%; margin: 2.55rem 0 0; /* rem: clears the motto hanging from the same edge */
+.tagline { position: absolute; top: 100%; left: 50%; margin: clamp(6rem, 15vh, 9rem) 0 0; /* far below the lockup (owner call 2026-08-13); the vh term scales the drop with the viewport, the rem clamps keep it clear of the motto on short screens and tethered on tall ones */
   /* centre on the card, then ride the wordmark's shift so it sits under the WORD
      rather than under the card's unshifted box. px only — --word-shift-em is
      expressed in h1 em and would resolve against this much smaller font-size.
@@ -295,9 +295,9 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   /* floor raised from 0.6rem: at phone widths the vw term is far below the floor,
      so the floor IS the mobile size, and 0.6rem rendered too faint to read. */
-  font-size: clamp(0.72rem, 1.1vw, 0.82rem);
+  font-size: clamp(0.82rem, 1.2vw, 0.95rem); font-weight: 500; /* the woff2 declares 400 500, so the bolder weight is native, not synthesized */
   letter-spacing: 0.42em; text-indent: 0.42em; /* indent balances the trailing tracking */
-  text-transform: uppercase; color: var(--dim); white-space: nowrap;
+  text-transform: uppercase; color: var(--paper); white-space: nowrap;
   /* same principle as the wordmark: separation from the field comes from a halo
      on the glyphs, never from cutting a hole in the field behind them */
   text-shadow: 0 0 6px rgba(4, 4, 4, 1), 0 0 14px rgba(4, 4, 4, 0.95),
