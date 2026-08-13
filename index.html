@@ -172,6 +172,14 @@
      the font-size clamp floors at 2.75rem while the viewport keeps narrowing,
      so a shift that fits at 375px ran the Z off the left edge at 320px. */
   --word-shift-em: 1.15;
+  /* The NO-JS fallback for that wish, in px, defined ONCE and consumed by all
+     three of h1 / .motto / .tagline. It used to be restated inline at each of
+     them, which is a standing invitation to drift — and drift here is the
+     128.8px desync recorded in the .tagline comment below. One definition makes
+     lockstep structural instead of a rule someone has to remember.
+     `1em * --word-shift-em` at the h1 and this clamp are the same number,
+     because the h1's font-size IS this clamp. */
+  --word-shift-fallback: calc(clamp(2.75rem, 11vw, 7rem) * var(--word-shift-em));
   /* coverage floor for the fragment field. the field is centred on the MARK,
      not on the viewport, so it sits --eye-dx to the right of centre and has to
      span half the width PLUS that shift again to still reach the left edge —
@@ -287,6 +295,23 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
 @media (max-width: 640px) {
   .ghost { width: max(min(220vh, 1600px), var(--field-floor)); }   /* right/left untouched: the base rule centres on the mark */
 }
+/* THE NAME OUTRANKS THE LOCKUP. With JS the shift is capped to the room that
+   actually exists; with JS off there is nothing to measure with, so below the
+   width where the wish stops fitting the shift is dropped to zero and the
+   wordmark simply sits where it falls. Unshifted is a worse lockup — the mark
+   no longer parks on the final glyph — but a misspelled brand is not a
+   trade-off, it is a defect.
+   Measured on the shipped file, JS disabled: the wish is a constant 50.6px once
+   the font-size clamp floors at 2.75rem (below 400px), while the card keeps
+   sliding left — card.left 57.4px at 380px, 47.4px at 360px, 27.4px at 320px.
+   So the Z lands at x=+6.8 / -3.2 / -23.2 and the clip band is <=366px. The
+   -23.2px at 320px is the same number the --word-shift-em comment records from
+   the original measurement, reproduced here on the current file.
+   380px sits above that 366px edge and below the 400px where the clamp
+   unfloors, so the override only ever applies inside the floored regime. */
+@media (max-width: 380px) {
+  :root { --word-shift-fallback: 0px; }
+}
 @media print {
   .ghost-wrap, #orb, #torch, #reveal, body::after { display: none !important; }
   html, body { background: #fff; }
@@ -337,9 +362,8 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
    the two faces' font-size clamps resolve differently. */
 .motto { position: absolute; top: 100%; left: 50%; margin: 0.55rem 0 0;
   /* centred under the WORD, not the card: same ride-the-shift transform as the
-     tagline, restating the h1's clamp as the no-JS fallback for the same
-     reason it does. */
-  transform: translateX(calc(-50% - var(--word-shift-applied, calc(clamp(2.75rem, 11vw, 7rem) * var(--word-shift-em)))));
+     tagline, and the same shared no-JS fallback, for the same reason it does. */
+  transform: translateX(calc(-50% - var(--word-shift-applied, var(--word-shift-fallback))));
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: clamp(0.72rem, 1.6vw, 0.95rem);
   letter-spacing: 0.02em; color: var(--dim); white-space: nowrap;
@@ -355,13 +379,14 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
   /* centre on the card, then ride the wordmark's shift so it sits under the WORD
      rather than under the card's unshifted box. px only — --word-shift-em is
      expressed in h1 em and would resolve against this much smaller font-size.
-     The 0 fallback just means "unshifted" on a no-JS render. */
-  /* The fallback must MATCH the h1's fallback, not be zero: the h1 falls back to
-     the uncapped wish (1em x --word-shift-em, in H1 em), so a 0 here left the
-     tagline parked under the card's unshifted centre while the word had already
-     slid — 128.8px apart at 1440px on a real JS-disabled load. Restate the h1's
-     clamp so the em resolves against the same font-size. */
-  transform: translateX(calc(-50% - var(--word-shift-applied, calc(clamp(2.75rem, 11vw, 7rem) * var(--word-shift-em)))));
+     The fallback must MATCH what the h1 falls back to, and must not be zero on
+     its own: a 0 here once left the tagline parked under the card's unshifted
+     centre while the word had already slid — 128.8px apart at 1440px on a real
+     JS-disabled load. That is why all three consumers now read the SAME
+     --word-shift-fallback instead of each restating the clamp: matching is
+     structural, so the three cannot drift apart again, and the narrow-viewport
+     override that zeroes it moves all three together by construction. */
+  transform: translateX(calc(-50% - var(--word-shift-applied, var(--word-shift-fallback))));
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   /* floor raised from 0.6rem: at phone widths the vw term is far below the floor,
      so the floor IS the mobile size, and 0.6rem rendered too faint to read. */
@@ -407,8 +432,13 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
 .logo .tri { fill: var(--signal); }
 h1 { position: relative;
   /* JS writes --word-shift-applied in px, already capped to the available room.
-     the fallback is the uncapped wish, which is what a no-JS render gets. */
-  left: calc(-1 * var(--word-shift-applied, calc(1em * var(--word-shift-em))));
+     The fallback is the wish, capped only by the narrow-viewport media query
+     that zeroes --word-shift-fallback — it is NOT the uncapped wish any more.
+     It used to be, and that misspelled the brand: with JS off, everything at or
+     below 366px put the Z at a negative x and main's overflow:hidden ate it.
+     Shared with .motto and .tagline through the one custom property so the
+     three cannot drift; see the .tagline comment for what drift cost last time. */
+  left: calc(-1 * var(--word-shift-applied, var(--word-shift-fallback)));
   z-index: 2; margin: 0; font-family: var(--wordmark); font-weight: 400;
   font-size: clamp(2.75rem, 11vw, 7rem); line-height: 1; letter-spacing: 0.14em;
   text-indent: 0.14em; /* balances the trailing tracking so the word optically centers */
@@ -1612,11 +1642,26 @@ try { (function () {
   requestAnimationFrame(loop);
 
 })(); } catch (e) {
-  // Swallowed on purpose, and empty on purpose. There is nothing to fall back
-  // to: every effect above is decoration over a page that is already fully
-  // rendered by CSS, so the correct recovery is to carry on to the typewriter.
-  // Reporting it would need either a console the visitor will never open or a
-  // network call this page does not make.
+  // Still swallowed — decoration must never take the copy down with it — but no
+  // longer silent. It was silent, and that made this block a suspect every time
+  // anything downstream of it looked wrong, with no way to clear it except by
+  // instrumenting the catch by hand. A visitor will never open the console; the
+  // next person debugging this will.
+  if (window.console && console.error) console.error('zafetra: effects block failed', e);
+  // The one piece of recovery worth doing here. lockMarkAndEye() lives in the
+  // block above and is what CAPS the wordmark's leftward shift; the CSS
+  // fallback is the uncapped wish. So if this threw before that ran, the shift
+  // stays uncapped and can walk the Z off the left edge on a narrow viewport —
+  // a broken decorator would misspell the brand. Park it at zero instead: a
+  // worse lockup, never a clipped name.
+  // ONLY if unset. If the cap already wrote a value this must not clobber it,
+  // and a throw anywhere after that write would otherwise undo good work.
+  try {
+    var de = document.documentElement;
+    if (!de.style.getPropertyValue('--word-shift-applied')) {
+      de.style.setProperty('--word-shift-applied', '0px');
+    }
+  } catch (e2) {}
 }
 
 // Typewriter tagline. Deliberately its OWN top-level IIFE: the block above
