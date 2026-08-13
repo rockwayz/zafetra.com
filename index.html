@@ -189,7 +189,7 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
      font-size below makes 1em == one h1 font-size for that fallback. */
   font-size: clamp(2.75rem, 11vw, 7rem);
   transform: translate(calc(-50% + var(--eye-dx)), -50%);
-  width: max(min(260vh, 190vw, 2400px), var(--field-floor)); height: auto; opacity: var(--field-core); pointer-events: none; user-select: none; -webkit-user-select: none; font-family: 'JetBrains Mono', ui-monospace, monospace; animation: ghostin 2.2s ease-out 0.5s both; }
+  width: max(min(260vh, 190vw, 2400px), var(--field-floor)); height: auto; opacity: var(--field-core); pointer-events: none; user-select: none; -webkit-user-select: none; font-family: 'JetBrains Mono', ui-monospace, monospace; }
 /* Deliberately NO mix-blend-mode here. `screen` is the obvious way to make hues
    glow on a near-black ground, and it looked good — but A/B'd over 4 alternating
    runs it DOUBLED the median frame time while dragging the torch, 8.3ms → 16.6ms
@@ -197,22 +197,21 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
    a blend mode makes the compositor re-blend three full-size SVG layers every
    frame. The alpha boost alone gets the colour there: at ~0.8 effective, hsl(18)
    composites to rgb(184,107,75) over #040404, which is plainly orange. */
-.ghost-lit { opacity: var(--field-lit); animation: litin 2.2s ease-out 0.5s both; }
+.ghost-lit { opacity: var(--field-lit); }
 #reveal { position: fixed; left: 0; top: 0; width: 480px; height: 480px; margin: -240px 0 0 -240px; z-index: 5; pointer-events: none; display: none; opacity: 0; will-change: transform; transition: opacity 0.35s ease; -webkit-mask-image: radial-gradient(circle at center, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 72%); mask-image: radial-gradient(circle at center, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 72%); }
 .has-orb #reveal { display: block; }
 .reveal-inner { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; will-change: transform; }
-.ghost.mid  { opacity: var(--field-mid); animation: ghostin-mid 2.2s ease-out 0.5s both; }
-.ghost.aura { opacity: var(--field-aura); animation: ghostin-aura 2.2s ease-out 0.5s both; }
-@keyframes ghostin { from { opacity: 0; } to { opacity: var(--field-core); } }
-@keyframes ghostin-mid { from { opacity: 0; } to { opacity: var(--field-mid); } }
-@keyframes ghostin-aura { from { opacity: 0; } to { opacity: var(--field-aura); } }
-@keyframes litin { from { opacity: 0; } to { opacity: var(--field-lit); } }
-/* ambient parallax is a fine-pointer garnish: touch devices keep the entrance
-   fade but never pay for an always-on compositor loop */
+.ghost.mid  { opacity: var(--field-mid); }
+.ghost.aura { opacity: var(--field-aura); }
+/* The field has NO entrance fade (owner call 2026-08-13): every layer paints at
+   its final opacity on first frame. The static opacity cascade reproduces the
+   exact steady state the old ghostin/litin fills settled into — including the
+   clone mid/aura layers resolving to ambient opacity via .ghost.mid's higher
+   specificity, which the current look was tuned against. */
+/* ambient parallax is a fine-pointer garnish: touch devices never pay for an
+   always-on compositor loop */
 @media (hover: none), (pointer: coarse) {
-  .ghost, .ghost.ccw-el { animation: ghostin 2.2s ease-out 0.5s both; will-change: auto; }
-  .ghost.mid { animation: ghostin-mid 2.2s ease-out 0.5s both; }
-  .ghost.aura { animation: ghostin-aura 2.2s ease-out 0.5s both; }
+  .ghost, .ghost.ccw-el { will-change: auto; }
 }
 @media (max-width: 640px) {
   .ghost { width: max(min(220vh, 1600px), var(--field-floor)); }   /* right/left untouched: the base rule centres on the mark */
