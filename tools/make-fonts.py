@@ -41,25 +41,33 @@ flags are load-bearing in getting there and were each found by diffing:
     naming, not geometry);
   --drop-tables+=HVAR, which Google's own build drops and pyftsubset keeps.
 
-THE CEILING: 33 CHARACTERS NO JETBRAINS MONO CAN SERVE
+THE CEILING, AND HOW MOST OF IT WAS RECOVERED ANYWAY
 Widening from this source recovers 38 of the 71. The other 33 are absent from
-2.211's cmap. They are not recoverable by remapping either: JetBrains Mono has
+2.211's cmap, and are not recoverable by remapping either: JetBrains Mono has
 no unencoded `.sups`/`.subs` glyph variants to point a cmap entry at -- its
 sups/subs/sinf features map onto codepoints that are already encoded.
 
-  27 of the 33 occur in the STATIC FIELD. Per the standing rule that copy is an
-     owner call, they are NOT substituted here. They are listed in ESCALATED
-     below and reported by --report for owner review.
-   6 occur ONLY in the runtime junk pools (TOKENS/FILL), which are junk by
-     definition, so they were substituted in index.html for covered
-     near-equivalents. See SUBSTITUTED below; each swap is commented at its
-     site in the script.
+  6 of the 33 occur ONLY in the runtime junk pools (TOKENS/FILL), which are junk
+    by definition, so they were substituted in index.html for covered
+    near-equivalents. See SUBSTITUTED below; each swap is commented at its site.
+ 27 occur in the STATIC FIELD, where the copy is an owner call and substitution
+    is not available.
 
-A later JetBrains release would recover 12 of the 27 (the nabla, right tack,
-double arrow, union, intersection, the negated existential, the double-struck R
-and Q, minus-or-plus, square image, up tack, questioned equal). That is a
-typeface-version decision, not a bug fix, so it is the owner's call -- taking it
-means accepting the 174-glyph redraw above, or carrying a third face.
+Of those 27, SEVENTEEN are now FABRICATED rather than escalated: 2.211 has no
+glyph for them but it does have the parts, so they are assembled as TrueType
+composites from its own outlines -- the same way the font builds its own
+subscripts. Nothing is drawn from scratch and no existing outline is touched.
+See FABRICATED and the FABRICATION NOTES further down for how each transform is
+measured off the face rather than chosen.
+
+The remaining 10 are on ALLOWLIST, each with its field frequency and the reason
+no composite was shipped -- including two that were built, rendered and rejected.
+The build FAILS on any uncovered character that is not on that list, so a future
+field edit cannot quietly reopen the gap.
+
+A later JetBrains release would still be the only route to some of them, at the
+cost of the 174-glyph redraw above. That remains a typeface-version decision and
+the owner's call.
 
 WHAT THE CHECK GUARDS
 Default mode takes no network and rebuilds nothing. It re-derives the inventory
@@ -151,6 +159,11 @@ FABRICATED = {
     0x2090: ("sub", [0x0061], "subscript a"),
     0x208B: ("subsign", [0x2212], "subscript minus"),
     0x2207: ("flip", [0x0394], "nabla: the greek Delta, mirrored"),
+    # ∓ is ± upside down, and the font's ± is a plus over a bar — so the mirror
+    # is a bar over a plus, which is exactly the glyph. No scaling, so it keeps
+    # the source's weight and proportion untouched. The only Tier B construction
+    # that survived its strip; see the allowlist for the two that did not.
+    0x2213: ("flip", [0x00B1], "minus-or-plus: plus-minus, mirrored"),
     0x1E8B: ("stack", [0x0078, 0x0307], "x with dot above"),
     0x1E8D: ("stack", [0x0078, 0x0308], "x with diaeresis"),
 }
@@ -174,9 +187,18 @@ ALLOWLIST = {
     "⟹": (4, "long double arrow: as ⇒, plus a bar that would have to be drawn"),
     "ℏ": (1, "planck: h with a bar — the bar is an original stroke, not a component"),
     "ℝ": (1, "double-struck R: a distinct letterform, not a transform of R"),
-    "∓": (1, "minus-or-plus: not yet attempted (Tier B candidate — ± mirrored)"),
-    "∮": (1, "contour integral: not yet attempted (Tier B candidate — ∫ plus a ring)"),
-    "⊢": (8, "right tack: not yet attempted (Tier B candidate — bar plus minus)"),
+    "∮": (1, "contour integral: BUILT AND REJECTED. ∫ plus the ring operator, "
+             "centred on the integral's bbox, reads at field size as a speck on the "
+             "stem rather than a ring around it. The font's only rings (∘ 240u, "
+             "° 300u) are drawn for other jobs, and sizing one against the "
+             "integral's stroke is a number the font does not supply"),
+    "⊢": (8, "right tack: BUILT AND REJECTED, twice. A bar plus a minus, and the "
+             "box-drawing ├ scaled down, both render as a thin stub arm. ├ has the "
+             "right topology but box-CELL metrics (-300..1020, 100-unit strokes), "
+             "and matching its extent and its stroke weight to this face pull "
+             "opposite ways. Every remaining number — arm length, bar height — "
+             "would be chosen rather than derived, which is the line this tool "
+             "does not cross. Needs original drawing: an owner decision"),
 }
 
 # Junk-pool-only characters that were swapped for covered near-equivalents.
