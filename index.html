@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-l/nJM/El7NAoQh3sdit8zSrA51IyicjKT8jkbh7+fyI=' 'sha256-jP+9Do3WSD07QM2vpl3sfgxshOXhLPADs+SpyrXqM9w='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-vNzoKpTSRhHOX/pfz906ZZcPA6uR1oiANKbAhKyBn50='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-l/nJM/El7NAoQh3sdit8zSrA51IyicjKT8jkbh7+fyI=' 'sha256-zc4CHS2pxkkq2GveDzH6V5tFmDfA8lIsQ37llKMVBU0='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-vNzoKpTSRhHOX/pfz906ZZcPA6uR1oiANKbAhKyBn50='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -1148,6 +1148,7 @@ try { (function () {
   var orb = document.getElementById('orb');
   var ghostWrap = document.querySelector('.ghost-wrap');
   var speed = { v: 0 };
+  var lastPointerAt = 0;   // wall clock, for the promotion failsafe below
   var effectsOn = false;
   var lit = null, reveal = null, revealInner = null, litWrap = null;
 
@@ -1178,6 +1179,9 @@ try { (function () {
   // can land in the middle of a run, hence the catch-up at the end of buildLit().
   // The three are the only elements on the page transformed every frame that do
   // not keep a static will-change; #orb, #torch and #reveal do keep theirs.
+  // It is also the failsafe's window — see the wave loop, which force-releases
+  // when the pointer has been still this long and the wave has healed, so a
+  // stalled settle can no longer pin the textures for the session.
   var RELEASE_MS = 3000;
   var releaseTimer = null, promoted = false;
   function promotionTargets() {
@@ -1339,7 +1343,19 @@ try { (function () {
     var k = 1 - Math.exp(-dt / 85);
     var dx = (tx - cx) * k, dy = (ty - cy) * k;
     cx += dx; cy += dy;
-    speed.v += (Math.sqrt(dx * dx + dy * dy) / dt * 16 - speed.v) * 0.1;
+    // TIME-based, like every other damping here — it used to be a flat 0.1 per
+    // FRAME, and that is the exit-side twin of the entry-side feedback loop
+    // documented above. Measured: during a sustained drag the wave's raster
+    // holds the page at ~5-7fps, and dt is CLAMPED at 50ms just above, so the
+    // decay got neither more frames nor a bigger step. speed.v left a 10s drag
+    // at ~38 and needed to reach 0.02 to settle; instrumented, it took 30.0s to
+    // cross even the 1.5 leave-threshold and never reached 0.02 at all. tick()
+    // therefore never entered its settle branch, schedulePromotionRelease() was
+    // never called, and three full-viewport textures stayed promoted for the
+    // life of the page. 150ms reproduces the old 0.1-per-frame response at
+    // 60fps (1 - e^(-16/150) = 0.10) while behaving identically per unit time at
+    // 8ms or at the 50ms clamp, which is the whole point.
+    speed.v += (Math.sqrt(dx * dx + dy * dy) / dt * 16 - speed.v) * (1 - Math.exp(-dt / 150));
     torch.style.transform = 'translate(' + cx.toFixed(1) + 'px, ' + cy.toFixed(1) + 'px)';
     // The field is HEAVIER than the torch and gets its own follower. Sharing the
     // torch's 85ms constant meant background and foreground glow were one object
@@ -1502,6 +1518,7 @@ try { (function () {
     orb.style.transform = 'translate(' + tx + 'px, ' + ty + 'px)';
     // promote() also cancels any release still pending from the last settle,
     // which is what stops a release landing on a sweep that has just restarted.
+    lastPointerAt = performance.now();
     if (!ticking) { ticking = true; promote(); last = performance.now(); requestAnimationFrame(tick); }
   }, { passive: true });
   // The pointer left the window, or the window lost focus. Fade the WHOLE cursor
@@ -1654,11 +1671,28 @@ try { (function () {
     // wave on: a feedback loop with no smooth state. 4 = ~310 px/s (a deliberate
     // sweep), 1.5 = ~117 px/s to leave. Gap kept wide so the mode cannot flap.
     var newMode = mode === 'spin' ? (v < 1.5 ? 'idle' : 'spin') : (v > 4 ? 'spin' : 'idle');
+    // THE WAVE IS THE REWARD FOR STOPPING, not the accompaniment to moving.
+    // It used to launch on entering `spin` — i.e. it wrote its junk during the
+    // exact frames the pointer was demanding. Profiled: those writes are
+    // raster-bound, not JS-bound (RasterTask 6648ms across 115 tasks in a 6s
+    // drag, averaging 57.8ms each, against 71.8ms of total input handling),
+    // because a <text> on a textPath has an ARC bounding box, so one write
+    // dirties a region far larger than the glyphs it changed. Cutting the write
+    // COUNT barely helps — DENSITY 0.50 -> 0.15 is 3.3x fewer writes for 866ms
+    // -> 658ms p95 and no change in dropped frames. Not writing at all does:
+    // with the wave silent the same sweep holds 8.3ms median, 9.3ms p95, 0%
+    // dropped, against 8.4ms / 859ms / 25% with it running.
+    // So the wave now fires when the pointer SETTLES. The thresholds are the
+    // ones already measured for the mode machine above — 4 in, 1.5 out, ~310
+    // and ~117 px/s — reused rather than re-picked, which keeps the existing
+    // hysteresis gap doing its job: mid-drag jitter cannot flap the gate.
+    // Slow deliberate motion never enters `spin`, so it never triggers a settle
+    // and behaves exactly as before.
     if (newMode !== mode) {
       mode = newMode;
-      if (mode === 'spin' && wavePos < 0) { wavePos = 0; lastNow = now; }
-      if (mode === 'idle' && wavePos >= 0) {
-        wavePos = -1; // cursor settled — kill the wave and heal everything now
+      if (mode === 'idle' && wavePos < 0) { wavePos = 0; lastNow = now; }
+      if (mode === 'spin' && wavePos >= 0) {
+        wavePos = -1; // drag resumed — stop writing and heal what is dirty
         nodes.forEach(function (n) { if (n.dirty) startResolve(n); });
         setTimeout(function () {
           if (wavePos >= 0) return;
@@ -1667,6 +1701,18 @@ try { (function () {
           });
         }, 900);
       }
+    }
+    // PROMOTION FAILSAFE, deliberately independent of the physics above.
+    // The primary release path runs off tick()'s settle branch, which depends on
+    // speed.v converging — and that is exactly what failed. This asks a question
+    // no feedback loop can starve: has the POINTER been still longer than the
+    // release window, and is the wave done writing? Then the textures are not
+    // earning their memory, whatever the damping thinks. It rides this loop's
+    // existing cadence (rAF while the wave runs, the 250ms poll once idle), so
+    // it costs no timer of its own, and it cannot fight promote(): any pointer
+    // event moves lastPointerAt and the window reopens.
+    if (promoted && lastPointerAt && wavePos < 0 && (now - lastPointerAt) > RELEASE_MS) {
+      releasePromotion();
     }
     var dt = Math.min(now - lastNow, 300);
     lastNow = now;
@@ -1681,7 +1727,9 @@ try { (function () {
         });
       }
       if (tail > SPIRAL_LEN) {
-        wavePos = mode === 'spin' ? 0 : -1; // chain waves while the cursor stays fast
+        wavePos = -1; // one sweep per settle. Chaining was for the old
+        // fire-while-moving design; now a still pointer would re-wave forever,
+        // which is the battery cost this pass exists to remove.
         nodes.forEach(function (n) { if (n.dirty) startResolve(n); });
         setTimeout(function () {
           if (wavePos >= 0) return;
