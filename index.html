@@ -208,10 +208,16 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
    exact steady state the old ghostin/litin fills settled into — including the
    clone mid/aura layers resolving to ambient opacity via .ghost.mid's higher
    specificity, which the current look was tuned against. */
-/* ambient parallax is a fine-pointer garnish: touch devices never pay for an
-   always-on compositor loop */
+/* ambient parallax is a fine-pointer garnish: the field's follower only runs
+   once effects are enabled, which requires a fine pointer. .ghost-wrap is the
+   element that actually carries will-change: transform, so it is the one to
+   un-promote here — otherwise a touch device holds a full-viewport composited
+   layer for a transform that never runs. The .ghost svgs were never promoted
+   (resetting them was a no-op) and the old .ccw-el selector matched no element
+   in the document. #reveal and .reveal-inner need no gate: both are built on
+   the enableEffects path, so neither exists on a coarse pointer. */
 @media (hover: none), (pointer: coarse) {
-  .ghost, .ghost.ccw-el { will-change: auto; }
+  .ghost-wrap { will-change: auto; }
 }
 @media (max-width: 640px) {
   .ghost { width: max(min(220vh, 1600px), var(--field-floor)); }   /* right/left untouched: the base rule centres on the mark */
