@@ -1024,8 +1024,9 @@ h1 { position: relative;
 
   // ---- layer promotion --------------------------------------------------
   // `will-change: transform` is a standing request for a GPU texture, and the
-  // two field wrappers are full-viewport layers, so the choice is a real one
-  // with no free option:
+  // three managed elements — the field wrapper, the torch clone's wrapper, and
+  // the counter-translated .reveal-inner — are all full-viewport layers, so the
+  // choice is a real one with no free option:
   //   held statically (what this was) the texture is retained for the life of
   //     the page whether or not anything ever moves;
   //   dropped the instant the pointer settles, every new sweep re-promotes two
@@ -1042,18 +1043,31 @@ h1 { position: relative;
   // #orb, #torch and #reveal keep their static will-change: they are small and,
   // under .has-orb, always live.
   //
-  // The two wrappers are listed EXPLICITLY rather than selected by class.
-  // litWrap is a .ghost-wrap clone, so anything class-based would move under us,
-  // and it does not exist until buildLit() runs at idle — which can land in the
-  // middle of a run, hence the catch-up in buildLit().
+  // All three targets are listed EXPLICITLY rather than selected by class.
+  // litWrap is a .ghost-wrap clone, so anything class-based would move under us
+  // — and neither it nor revealInner exists until buildLit() runs at idle, which
+  // can land in the middle of a run, hence the catch-up at the end of buildLit().
+  // The three are the only elements on the page transformed every frame that do
+  // not keep a static will-change; #orb, #torch and #reveal do keep theirs.
   var RELEASE_MS = 3000;
   var releaseTimer = null, promoted = false;
-  function promotionTargets() { return litWrap ? [ghostWrap, litWrap] : [ghostWrap]; }
+  function promotionTargets() {
+    var t = [ghostWrap];
+    if (revealInner) t.push(revealInner);
+    if (litWrap) t.push(litWrap);
+    return t;
+  }
+  // Separate from promote() on purpose: the catch-up in buildLit() has to be able
+  // to apply promotion to newly-built targets WITHOUT touching the release timer.
+  // Routing it through promote() would cancel a legitimately pending release.
+  function applyPromotion() {
+    promotionTargets().forEach(function (el) { el.style.willChange = 'transform'; });
+  }
   function promote() {
     if (releaseTimer) { clearTimeout(releaseTimer); releaseTimer = null; }
     if (promoted) return;
     promoted = true;
-    promotionTargets().forEach(function (el) { el.style.willChange = 'transform'; });
+    applyPromotion();
   }
   function schedulePromotionRelease() {
     if (releaseTimer) clearTimeout(releaseTimer);
@@ -1097,12 +1111,6 @@ h1 { position: relative;
       litWrap.className = 'ghost-wrap';
       litWrap.style.maskImage = 'none';
       litWrap.style.webkitMaskImage = 'none';
-      // buildLit() runs at idle and can land mid-run, after promote() has
-      // already gone round the targets — so the clone catches up here. Keyed on
-      // `promoted` rather than `ticking` on purpose: it must also be promoted
-      // when it is built inside the post-settle release window, so that the
-      // pending release finds both wrappers and clears them together.
-      if (promoted) litWrap.style.willChange = 'transform';
       // Torch palette, read once. A CSS `fill` would be simpler but every
       // fragment carries an inline fill="#A8A199" presentation attribute and we
       // want a DIFFERENT hue per fragment, not one colour for the layer — so
@@ -1147,6 +1155,13 @@ h1 { position: relative;
       revealInner.appendChild(litWrap);
       reveal.appendChild(revealInner);
       document.querySelector('main').appendChild(reveal);
+      // Catch-up. buildLit() runs at idle and can land mid-run, after promote()
+      // has already been round the targets — and two of the three targets did
+      // not exist when it did. Deliberately placed after BOTH revealInner and
+      // litWrap are built, and keyed on `promoted` rather than on `ticking`, so
+      // that a clone built inside the post-settle release window is promoted
+      // too and the pending release finds all three and clears them together.
+      if (promoted) applyPromotion();
     }
   }
   function disableEffects() {
