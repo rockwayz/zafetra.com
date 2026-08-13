@@ -51,10 +51,17 @@ INDEX = ROOT / "index.html"
 
 CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 
-# 360 and 641 are the two that matter: 360 is a real phone width and the old
-# clip band's upper edge, 641 is the typewriter breakpoint. The rest span the
-# clamp's floored, proportional and capped regimes.
-WIDTHS = [360, 641, 760, 900, 1024, 1440]
+# 280 is the Galaxy Fold cover screen and the width where `.card`'s max-width
+# stops it shrink-wrapping the h1 — the term that broke the shift cap. 360 is a
+# real phone width and the old no-JS clip band's upper edge. 375 is the iPhone
+# SE/mini. 641 is the typewriter breakpoint. The rest span the font-size clamp's
+# floored, proportional and capped regimes.
+WIDTHS = [280, 360, 375, 641, 760, 900, 1024, 1440]
+
+# Below this the no-JS render drops the mark rather than park it on the final
+# letter; see the matching media query in index.html. Asserted here so the two
+# cannot drift apart.
+MARK_HIDDEN_BELOW = 380
 
 
 def die(msg):
@@ -85,8 +92,13 @@ addEventListener('load', function(){ setTimeout(function(){
       var d=f.contentDocument, win=f.contentWindow;
       var h1=d.querySelector('h1'), r=h1.getBoundingClientRect();
       var ap=win.getComputedStyle(d.documentElement).getPropertyValue('--word-shift-applied').trim();
+      var logo=d.querySelector('.logo');
+      var lvis=win.getComputedStyle(logo).display!=='none';
+      var lr=logo.getBoundingClientRect();
       out.push({w:+f.dataset.w, vw:win.innerWidth, left:+r.left.toFixed(1),
                 right:+r.right.toFixed(1), applied:ap||null,
+                markShown:lvis, markRight:+lr.right.toFixed(1),
+                locked:d.documentElement.classList.contains('mark-locked'),
                 fs:win.getComputedStyle(h1).fontSize});
     }catch(e){ out.push({w:+f.dataset.w, error:String(e)}); }
   });
@@ -159,8 +171,22 @@ def main():
                 bad.append("--word-shift-applied UNSET though JS ran")
             if cond == "js-off" and r["applied"]:
                 bad.append(f"--word-shift-applied set to {r['applied']} with no JS")
+            # the mark is dropped ONLY when it was never placed, and only narrow
+            if cond == "js-on" and not r["markShown"]:
+                bad.append("mark hidden even though JS placed it")
+            if cond == "js-on" and not r["locked"]:
+                bad.append(".mark-locked absent though JS ran")
+            if cond == "js-off":
+                want = r["w"] >= MARK_HIDDEN_BELOW
+                if r["markShown"] != want:
+                    bad.append(f"mark {'shown' if r['markShown'] else 'hidden'} with no JS at "
+                               f"{r['w']}px; expected {'shown' if want else 'hidden'}")
+            # nothing may hang off the right edge either
+            if r["markShown"] and r["markRight"] > r["vw"] + 0.5:
+                bad.append(f"mark right {r['markRight']} > {r['vw']}")
             print(f"{cond:8} {r['w']:6} {r['left']:9.1f} {r['right']:9.1f} "
-                  f"{str(r['applied'] or '-'):>10} {r['fs']:>8}  {'; '.join(bad) if bad else 'ok'}")
+                  f"{str(r['applied'] or '-'):>10} {r['fs']:>8}  "
+                  f"mark={'yes' if r['markShown'] else 'no ':<3} {'; '.join(bad) if bad else 'ok'}")
             fails += [f"{cond} @ {r['w']}px: {b}" for b in bad]
 
     if "--render" in sys.argv[1:]:
