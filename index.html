@@ -1032,7 +1032,22 @@ h1 { position: relative;
   </div>
 </main>
 <script>
-(function () {
+// The effects block is wrapped so it cannot take the copy down with it. It is
+// already its own IIFE, and the typewriter below is a separate one, because a
+// `return` in here must not skip the typewriter — but a `return` is not a
+// `throw`, and an uncaught exception anywhere in this block would halt the
+// whole <script> element and leave the page with no moving copy at all, to
+// protect a decoration. So: decoration must never outrank copy.
+//
+// This covers exactly the window that is actually vulnerable. Only the
+// synchronous wiring below runs inside the try; a later throw — inside a rAF
+// tick, an idle callback or a listener — lands on its own stack, where it has
+// never been able to reach the typewriter, because that has already started by
+// then. Swallowing is therefore sufficient and not merely convenient.
+//
+// Wrapped at the invocation rather than around a re-indented body, so this
+// stays a two-line change to a 500-line block.
+try { (function () {
   var fineQ = window.matchMedia('(hover: hover) and (pointer: fine)');
   var reduceQ = window.matchMedia('(prefers-reduced-motion: reduce)');
   var fcQ = window.matchMedia('(forced-colors: active)');
@@ -1558,7 +1573,13 @@ h1 { position: relative;
   }
   requestAnimationFrame(loop);
 
-})();
+})(); } catch (e) {
+  // Swallowed on purpose, and empty on purpose. There is nothing to fall back
+  // to: every effect above is decoration over a page that is already fully
+  // rendered by CSS, so the correct recovery is to carry on to the typewriter.
+  // Reporting it would need either a console the visitor will never open or a
+  // network call this page does not make.
+}
 
 // Typewriter tagline. Deliberately its OWN top-level IIFE: the block above
 // returns early on `!fineQ.matches` (it guards the pointer-driven glitch wave),
