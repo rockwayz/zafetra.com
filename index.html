@@ -16,6 +16,12 @@
        openssl dgst -sha256 -binary <(extracted script body) | openssl base64 -A
      and replace 'unsafe-inline' with 'sha256-<digest>'.
 
+     WHEN YOU DO THAT, COMPUTE TWO HASHES, NOT ONE. script-src governs every
+     <script> ELEMENT, including the application/ld+json block further down —
+     CSP does not exempt it for being data rather than code. Hash the ld+json
+     block as well and list both digests, or the structured data is silently
+     dropped and the page keeps rendering as if nothing were wrong.
+
      NOT set here, because meta CSP cannot: frame-ancestors (clickjacking),
      report-uri, sandbox. Those need real response headers, which GitHub Pages
      does not offer. See the security notes for the Cloudflare route. -->
@@ -43,6 +49,38 @@
 <meta name="twitter:description" content="Zafetra makes the impossible legible. We re-solve with structure what the field solves with scale.">
 <meta name="twitter:image" content="https://zafetra.com/assets/og.png">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%2064%2064%27%3E%3Crect%20width%3D%2764%27%20height%3D%2764%27%20fill%3D%27%23040404%27/%3E%3Cg%20fill%3D%27none%27%20stroke%3D%27%23F8F4F0%27%20stroke-width%3D%274.6%27%3E%3Cpath%20d%3D%27M32%206%20A26%2026%200%201%200%2031.1%2058%27/%3E%3Cpath%20d%3D%27M58%2032%20A26%2026%200%200%201%2034.7%2057.9%27/%3E%3C/g%3E%3Ccircle%20cx%3D%2732%27%20cy%3D%2732%27%20r%3D%2716%27%20fill%3D%27none%27%20stroke%3D%27%23F8F4F0%27%20stroke-width%3D%272.8%27/%3E%3Cline%20x1%3D%2732%27%20y1%3D%2716%27%20x2%3D%2732%27%20y2%3D%2748%27%20stroke%3D%27%23F8F4F0%27%20stroke-width%3D%272.8%27/%3E%3C/svg%3E">
+<!-- Additive fallbacks for clients that request the conventional root paths and
+     never read this markup. The data: SVG above stays the preferred icon; both
+     files are generated from it by tools/make-icons.py, which asserts its
+     geometry against that data: URI so the two cannot drift apart.
+     /favicon.ico (16 + 32) needs no declaration — it is found by convention. -->
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<!-- Structured data. Deliberately minimal: only facts already on this page —
+     name, url, the mark, and the meta description above, copied verbatim. No
+     founder, address, founding date, sameAs or contact point, because none of
+     those are established anywhere and structured data is not the place to
+     invent them. NOTE: this block is governed by script-src — see the CSP
+     comment at the top before switching that directive to hashes. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "name": "Zafetra",
+      "url": "https://zafetra.com/",
+      "logo": "https://zafetra.com/apple-touch-icon.png",
+      "description": "Zafetra makes the impossible legible. We re-solve with structure what the field solves with scale."
+    },
+    {
+      "@type": "WebSite",
+      "name": "Zafetra",
+      "url": "https://zafetra.com/",
+      "description": "Zafetra makes the impossible legible. We re-solve with structure what the field solves with scale."
+    }
+  ]
+}
+</script>
 <!-- Both subsets are used on first paint: the field and the tagline are set in
      JetBrains Mono and the fragments carry Greek. Without these the fonts are
      discovered only when layout first needs them, which lands AFTER the field has
@@ -1177,6 +1215,17 @@ h1 { position: relative;
     // read back where it actually landed instead of re-deriving it. That read
     // follows the write above and costs a sync layout; it buys a lock that
     // holds for any shift, and keeps this honest to its name.
+    // DO NOT BATCH THIS READ ABOVE THE WRITES. Every few months a profiler or a
+    // reviewer files the read/write interleave here as forced synchronous
+    // layout and prescribes "all reads, then all writes". The mechanism is real;
+    // the remedy is wrong. `.logo` is placed by `right: var(--ink-inset)`, and
+    // --ink-inset is set two lines up — so hoisting this measurement would read
+    // the mark's PREVIOUS position and leave the eye off it by exactly the
+    // amount the lockup just moved. The forced layout below is the one that has
+    // to happen. It is also the only one: the main read further down rides the
+    // same flush and costs nothing extra, so batching it would buy zero.
+    // None of this is on a hot path either — relayout() has four call sites
+    // (init, load, fonts.ready, resize) and not one fires on pointer movement.
     var mr = logoEl.getBoundingClientRect();
     var markCentre = mr.left + mr.width / 2;
     // .ghost sits at left:50% of the wrap and its own width cancels out of the
