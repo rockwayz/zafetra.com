@@ -86,7 +86,11 @@ from pathlib import Path
 from collections import Counter
 
 from fontTools.ttLib import TTFont
+from fontTools.ttLib.tables._g_l_y_f import Glyph, GlyphComponent
 from fontTools.pens.recordingPen import DecomposingRecordingPen
+
+ARGS_ARE_XY_VALUES = 0x0002
+ROUND_XY_TO_GRID = 0x0004
 
 ROOT = Path(__file__).resolve().parent.parent
 INDEX = ROOT / "index.html"
@@ -112,10 +116,68 @@ LAYOUT_FEATURES = "calt,ccmp,frac,locl,mark"
 # face is only honest if the axis actually spans it.
 AXIS_LIMIT = "wght=400:800"
 
-# The 27 characters the static field uses that no JetBrains Mono 2.211 glyph
-# exists for. Escalated to the owner rather than substituted, because changing
-# them means changing visible copy. Each renders from the platform fallback.
-ESCALATED = "ˢˣᵀᵉᵘᵢẋẍ⁻⁽⁾ⁿ₋ₐℏℝ⇌⇒∄∇∓∩∪∮⊢⟹ⱼ"
+# ---- what gets fabricated ---------------------------------------------------
+# 2.211 has no glyph for these, but it has the PARTS. Each is assembled as a
+# TrueType composite from the face's own outlines — the same way the font builds
+# its own subscripts (see FABRICATION NOTES far below). Components are named by
+# CODEPOINT here and resolved through the cmap at build time: the shipped face
+# carries production names, and `uni0307`-style names are an implementation
+# detail that must never be assumed.
+#
+#   sup     scale a base to superscript size and raise it to the superscript
+#           baseline, re-centring the ink in the 600-unit advance
+#   sub     the same, then down by the font's own superscript->subscript offset
+#   supsign / subsign
+#           as above but on the SIGN transform, derived from the one native
+#           base->superscript sign pair the font has (+ -> U+207A)
+#   flip    vertical mirror of a single component about its own bbox
+#   stack   a base with a mark centred over it, no scaling
+FABRICATED = {
+    0x207B: ("supsign", [0x2212], "superscript minus, from the minus"),
+    0x207F: ("sup", [0x006E], "superscript n"),
+    0x1D49: ("sup", [0x0065], "modifier small e"),
+    0x02E2: ("sup", [0x0073], "modifier small s"),
+    0x02E3: ("sup", [0x0078], "modifier small x"),
+    0x1D40: ("sup", [0x0054], "modifier capital T"),
+    0x207D: ("sup", [0x0028], "superscript left paren"),
+    0x207E: ("sup", [0x0029], "superscript right paren"),
+    0x1D62: ("sub", [0x0069], "subscript i"),
+    # MODIFIER LETTER, not a subscript one: Unicode's modifier letters sit
+    # RAISED. The field uses it as a contravariant tensor index — `½gᵘˢ(...)`,
+    # where it pairs with the modifier s directly beside it — so lowering it
+    # would have set one index of the pair against the other.
+    0x1D58: ("sup", [0x0075], "modifier small u"),
+    0x2C7C: ("sub", [0x006A], "subscript j"),
+    0x2090: ("sub", [0x0061], "subscript a"),
+    0x208B: ("subsign", [0x2212], "subscript minus"),
+    0x2207: ("flip", [0x0394], "nabla: the greek Delta, mirrored"),
+    0x1E8B: ("stack", [0x0078, 0x0307], "x with dot above"),
+    0x1E8D: ("stack", [0x0078, 0x0308], "x with diaeresis"),
+}
+
+# Components that are not otherwise in the latin subset and must be pulled into
+# it. U+0394 is greek: it stays SERVED by the greek face, so its cmap entry is
+# stripped after subsetting and the latin unicode-range never mentions it. Only
+# the outline is borrowed.
+COMPONENT_ONLY = {0x0394}
+
+# Characters the field draws that are still on the platform fallback, each with
+# its field frequency and the reason no composite was shipped. This is the list
+# the build asserts against: anything uncovered and NOT here fails the build, so
+# a future field edit cannot quietly reopen the gap.
+ALLOWLIST = {
+    "⇌": (9, "equilibrium harpoons: no component pair reads as one, and half an arrow cannot be faked"),
+    "⇒": (6, "double arrow: no double-stroke arrow parts in the face"),
+    "∩": (5, "intersection: no arch component; would need original drawing"),
+    "∪": (5, "union: as ∩, and flipping ∩ is not available while ∩ itself is absent"),
+    "∄": (4, "negated existential: needs a slash overlay sized to ∃, an original drawing decision"),
+    "⟹": (4, "long double arrow: as ⇒, plus a bar that would have to be drawn"),
+    "ℏ": (1, "planck: h with a bar — the bar is an original stroke, not a component"),
+    "ℝ": (1, "double-struck R: a distinct letterform, not a transform of R"),
+    "∓": (1, "minus-or-plus: not yet attempted (Tier B candidate — ± mirrored)"),
+    "∮": (1, "contour integral: not yet attempted (Tier B candidate — ∫ plus a ring)"),
+    "⊢": (8, "right tack: not yet attempted (Tier B candidate — bar plus minus)"),
+}
 
 # Junk-pool-only characters that were swapped for covered near-equivalents.
 # Kept here so the check can prove they are really gone from the pools.
@@ -262,6 +324,7 @@ def face_blocks():
 
 
 def check(report=False):
+    validate_recipes()
     inv = inventory()
     need = {ch for c in inv.values() for ch in c}
 
@@ -285,20 +348,32 @@ def check(report=False):
     fails = []
 
     # 1. coverage. The whole point: nothing the page can draw may fall through
-    #    to the platform stack unless it is on a documented list.
+    #    to the platform stack unless it is on the explicit allowlist. An
+    #    UNPLANNED gap is a build failure, so a future field edit that reaches
+    #    for a new symbol cannot quietly reopen this.
     gap = sorted(need - served, key=lambda c: -sum(v[c] for v in inv.values() if c in v))
-    unexpected = [c for c in gap if c not in ESCALATED]
+    unexpected = [c for c in gap if c not in ALLOWLIST]
     if unexpected:
         fails.append(
-            "characters the page draws that NO face serves and that are not escalated: "
+            "characters the page draws that NO face serves and that are not allowlisted: "
             + " ".join(f"U+{ord(c):04X} {c}" for c in unexpected)
         )
-    missing_escalation = [c for c in ESCALATED if c in served]
-    if missing_escalation:
+    now_served = [c for c in ALLOWLIST if c in served]
+    if now_served:
         fails.append(
-            "ESCALATED lists characters that are now served -- take them off the list: "
-            + " ".join(missing_escalation)
+            "ALLOWLIST lists characters that are now served -- take them off the list: "
+            + " ".join(now_served)
         )
+    # every fabricated codepoint must actually have arrived in the face
+    missing_fab = [cp for cp in FABRICATED if chr(cp) not in served]
+    if missing_fab:
+        fails.append("fabrication did not reach the shipped face for: "
+                     + " ".join(f"U+{cp:04X}" for cp in missing_fab))
+    # and a borrowed component must NOT be claimed by the latin face
+    for cp in COMPONENT_ONLY:
+        if chr(cp) in {chr(c) for c in codepoints_of(declared.get(LATIN.name, ""))}:
+            fails.append(f"U+{cp:04X} is borrowed as a component but the latin face "
+                         "declares it — the greek face must keep serving it")
 
     # 2. the substitutions really are gone from the junk pools.
     pools = inv["tokens"] + inv["fill"]
@@ -367,18 +442,26 @@ def check(report=False):
         wght = [(a.minValue, a.defaultValue, a.maxValue) for a in f["fvar"].axes if a.axisTag == "wght"]
         print(f"  assets/{name}: {len(cm)} codepoints, {f['maxp'].numGlyphs} glyphs, "
               f"wght {wght[0] if wght else '-'}, {(ROOT / 'assets' / name).stat().st_size} bytes")
-    print(f"served {len(need & served)}/{len(need)}; "
-          f"{len(gap)} fall through to the platform stack ({len(ESCALATED)} escalated, "
-          f"{len(SUBSTITUTED)} substituted out of the junk pools)")
+    fabricated = sorted(cp for cp in FABRICATED if chr(cp) in served)
+    native = len(need & served) - len(fabricated)
+    print(f"census: {native} native, {len(fabricated)} fabricated, "
+          f"{len(gap) - len(unexpected)} allowlisted, {len(unexpected)} unplanned  "
+          f"(of {len(need)} distinct; {len(SUBSTITUTED)} more substituted out of the junk pools)")
 
     if report:
-        print("\nescalated -- static-field characters no JetBrains Mono 2.211 glyph exists for:")
-        for c in sorted(ESCALATED, key=lambda c: -inv["field"][c]):
-            try:
-                nm = unicodedata.name(c)
-            except ValueError:
-                nm = "?"
-            print(f"  U+{ord(c):04X} {c}  {inv['field'][c]:3} in field   {nm}")
+        print("\nfabricated -- composites built from 2.211's own outlines:")
+        latin = faces[LATIN.name]
+        lglyf = latin["glyf"]
+        for cp in fabricated:
+            kind, parts, note = FABRICATED[cp]
+            g = lglyf[latin.getBestCmap()[cp]]
+            comps = ",".join(c.glyphName for c in g.components)
+            print(f"  U+{cp:04X} {chr(cp)}  {inv['field'][chr(cp)]:3} in field  "
+                  f"{kind:8} <- {comps:24} {note}")
+        print("\nallowlisted -- still on the platform fallback, with the reason:")
+        for c in sorted(ALLOWLIST, key=lambda c: -ALLOWLIST[c][0]):
+            freq, why = ALLOWLIST[c]
+            print(f"  U+{ord(c):04X} {c}  {freq:3} in field  {why}")
         print("\nsubstituted in the junk pools:")
         for a, b in SUBSTITUTED.items():
             print(f"  U+{ord(a):04X} {a} -> {b}")
@@ -424,7 +507,267 @@ def decomposed(font):
 
 
 # Font dates count from 1904-01-01, Unix time from 1970-01-01.
+# ---- fabrication ------------------------------------------------------------
+#
+# FABRICATION NOTES — why these constants are measured and not chosen.
+#
+# The face already tells us how JetBrains Mono relates a base glyph to its
+# superscript and its subscript. Two facts, both read off 2.211 itself:
+#
+#  1. Its SUBSCRIPTS ARE ALREADY COMPOSITES. U+2082 is literally U+00B2 with an
+#     offset of (0, -515) and no scaling; U+2080 and U+2086 are the same over
+#     their own superscripts. So the superscript->subscript drop is not a value
+#     anyone here picked — it is read out of the font's own composite and is
+#     exact by construction.
+#  2. Its SUPERSCRIPTS ARE DRAWN, not scaled, so the base->superscript transform
+#     has to be fitted. Across the ten native digit pairs (0-9 against U+2070,
+#     U+00B9, U+00B2, U+00B3, U+2074-2079) the HEIGHT ratio is tight — spread
+#     0.011 — while the WIDTH ratio is loose, spread 0.067. That gap is the
+#     designer optically widening the superscripts so their stems survive at
+#     small size, and it is why the x and y scales here are fitted SEPARATELY
+#     rather than forced equal. A single uniform scale would reproduce the
+#     height correctly and come out ~12% too narrow and correspondingly too
+#     light. Fitting both axes reproduces the font's own proportions.
+#
+# Signs are fitted apart from letters because they are positioned apart: a digit
+# sits on the baseline, a sign sits on the math axis. The face has exactly one
+# native base->superscript SIGN pair, + against U+207A, so that transform is
+# taken from it exactly rather than averaged. It lands the fabricated superscript
+# minus on the same crossbar height as the native superscript plus — which is the
+# thing that actually has to match, since the field sets them side by side.
+#
+# The derivation is checked against a glyph it did not come from: predicting
+# U+2082's y-range from the digit fit reproduces the real one within ~2 units.
+#
+# WHY NO gvar ENTRIES ARE NEEDED. Every component here carries its own gvar
+# deltas, and a composite with no gvar entry simply inherits whatever its
+# components do — so these glyphs get heavier with weight for free. What a gvar
+# entry would buy is VARYING OFFSETS, and the offsets here are constant: the face
+# is monospace at 600 units per em at every weight, so the centring never has to
+# move. The one honest caveat is that the offsets are computed from bounding
+# boxes measured at the default instance, wght 400. At heavier weights the ink
+# grows slightly and the centring drifts sub-unit. The field renders at 400 and
+# nothing else on the page uses these characters at all, so that drift is never
+# on screen.
 FONT_EPOCH_OFFSET = 2082844800
+ADVANCE = 600  # monospace, every weight
+
+
+def _gname(font, cp):
+    """Resolve a component by codepoint. Never assume a production name."""
+    name = font.getBestCmap().get(cp)
+    if name is None:
+        die(f"component U+{cp:04X} is not in the face — cannot fabricate from it")
+    return name
+
+
+def _bbox(glyf, name):
+    g = glyf[name]
+    g.recalcBounds(glyf)
+    return g.xMin, g.yMin, g.xMax, g.yMax
+
+
+def _leaves(glyf, name, sx=1.0, sy=1.0, dx=0.0, dy=0.0, depth=0):
+    """Flatten a composite to its simple glyphs, composing transforms.
+
+    Nesting a composite inside a composite is legal but thinly exercised in
+    rasterizers, and `i` and `j` in this face are themselves composites. So the
+    tree is flattened instead: every fabricated glyph references only simple
+    outlines, one level deep.
+    """
+    if depth > 4:
+        die(f"component nesting deeper than 4 at {name}")
+    g = glyf[name]
+    if not g.isComposite():
+        return [(name, sx, sy, dx, dy)]
+    out = []
+    for c in g.components:
+        t = getattr(c, "transform", [[1, 0], [0, 1]])
+        out += _leaves(glyf, c.glyphName, sx * t[0][0], sy * t[1][1],
+                       dx + sx * getattr(c, "x", 0), dy + sy * getattr(c, "y", 0), depth + 1)
+    return out
+
+
+def validate_recipes():
+    """Check each recipe's kind against what Unicode says the character IS.
+
+    This exists because it caught a real error: U+1D58 was written as a subscript
+    when it is a MODIFIER LETTER, which Unicode places RAISED. The field uses it
+    as a contravariant tensor index next to another modifier letter, so the two
+    halves of the same index pair would have sat at opposite heights. Cheap to
+    assert, and the failure mode is one that looks plausible in isolation and
+    only reads as wrong in context.
+    """
+    for cp, (kind, _parts, _note) in sorted(FABRICATED.items()):
+        try:
+            name = unicodedata.name(chr(cp))
+        except ValueError:
+            continue
+        raised = "SUPERSCRIPT" in name or "MODIFIER LETTER" in name
+        lowered = "SUBSCRIPT" in name
+        if not (raised or lowered):
+            continue                       # flip/stack kinds carry no height claim
+        want = "sup" if raised else "sub"
+        got = kind.replace("sign", "")
+        if got != want:
+            die(f"U+{cp:04X} {chr(cp)} is built as {kind!r} but Unicode calls it "
+                f"{name!r} — that is a {want}")
+
+
+def _crossbar(glyf, name):
+    """(thickness, centre y) of a sign's horizontal bar.
+
+    Taken as the two outline y-values nearest the glyph's vertical middle, which
+    is the crossbar band for a plus and the whole glyph for a minus. Both of the
+    glyphs this is used on are 4-point or 12-point rectilinear signs, so there is
+    nothing to disambiguate.
+    """
+    g = glyf[name]
+    while g.isComposite():
+        g = glyf[g.components[0].glyphName]
+    ys = sorted({y for _x, y in g.coordinates})
+    if len(ys) < 2:
+        die(f"{name} has no horizontal bar to measure")
+    mid = (ys[0] + ys[-1]) / 2
+    a, b = sorted(sorted(ys, key=lambda y: abs(y - mid))[:2])
+    return b - a, (a + b) / 2
+
+
+def derive_transforms(font):
+    """Measure the base->superscript and superscript->subscript relations."""
+    glyf = font["glyf"]
+    pairs = [(0x30, 0x2070), (0x31, 0x00B9), (0x32, 0x00B2), (0x33, 0x00B3), (0x34, 0x2074),
+             (0x35, 0x2075), (0x36, 0x2076), (0x37, 0x2077), (0x38, 0x2078), (0x39, 0x2079)]
+    sx, sy, dy = [], [], []
+    for base, sup in pairs:
+        b = _bbox(glyf, _gname(font, base))
+        s = _bbox(glyf, _gname(font, sup))
+        sx.append((s[2] - s[0]) / (b[2] - b[0]))
+        ys = (s[3] - s[1]) / (b[3] - b[1])
+        sy.append(ys)
+        dy.append(s[1] - ys * b[1])
+    t = {
+        "sx": sum(sx) / len(sx), "sy": sum(sy) / len(sy), "dy": sum(dy) / len(dy),
+        "sx_spread": max(sx) - min(sx), "sy_spread": max(sy) - min(sy),
+    }
+    # Signs are fitted from the one native base->superscript SIGN pair, + against
+    # U+207A, and they are fitted on TWO measurements rather than one, because a
+    # single scale gets the stroke weight visibly wrong. The native superscript
+    # plus is 0.5957 of the base's WIDTH but its crossbar is 0.875 of the base's
+    # THICKNESS: the designer shrank the sign's extent and kept its stroke almost
+    # intact. Scaling uniformly instead produced a superscript minus 48 units
+    # thick sitting beside a native 70 — a 31% weight jump, measured, and the one
+    # place in this pass where that was visible rather than theoretical.
+    # A bar is the one shape where extent and weight can both be matched exactly,
+    # because its bbox height IS its thickness. The result reproduces the native
+    # superscript plus's crossbar band to the unit.
+    pb = _bbox(glyf, _gname(font, 0x2B))
+    ps = _bbox(glyf, _gname(font, 0x207A))
+    t["sxsign"] = (ps[2] - ps[0]) / (pb[2] - pb[0])
+    bt, bc = _crossbar(glyf, _gname(font, 0x2B))
+    st, sc = _crossbar(glyf, _gname(font, 0x207A))
+    t["sysign"] = st / bt
+    t["dysign"] = sc - t["sysign"] * bc
+    if not 0.7 < t["sysign"] <= 1.0:
+        die(f"derived sign thickness ratio {t['sysign']:.4f} is outside 0.7-1.0")
+
+    sub = glyf[_gname(font, 0x2082)]
+    if not sub.isComposite() or len(sub.components) != 1:
+        die("U+2082 is no longer a single-component composite — the subscript drop "
+            "was read from it and can no longer be trusted")
+    t["subdy"] = sub.components[0].y
+
+    for k in ("sx", "sy", "sxsign"):
+        if not 0.5 < t[k] < 0.8:
+            die(f"derived {k}={t[k]:.4f} is outside the sane 0.5-0.8 band")
+    # Predict a glyph the fit did not come from, and check it.
+    b = _bbox(glyf, _gname(font, 0x32))
+    native = _bbox(glyf, _gname(font, 0x2082))
+    pred = (t["sy"] * b[1] + t["dy"] + t["subdy"], t["sy"] * b[3] + t["dy"] + t["subdy"])
+    err = max(abs(pred[0] - native[1]), abs(pred[1] - native[3]))
+    if err > 6:
+        die(f"the derivation misses the font's own U+2082 by {err:.1f} units")
+    t["check_err"] = err
+    return t
+
+
+def _component(name, sx, sy, dx, dy):
+    c = GlyphComponent()
+    c.glyphName = name
+    c.x, c.y = int(round(dx)), int(round(dy))
+    c.flags = ARGS_ARE_XY_VALUES | ROUND_XY_TO_GRID
+    if (sx, sy) != (1.0, 1.0):
+        c.transform = [[sx, 0], [0, sy]]
+    return c
+
+
+def fabricate(font, transforms):
+    """Append the composite glyphs. Sorted by codepoint, so builds are stable."""
+    validate_recipes()
+    glyf = font["glyf"]
+    t = transforms
+    made = []
+    for cp in sorted(FABRICATED):
+        kind, parts, _note = FABRICATED[cp]
+        names = [_gname(font, p) for p in parts]
+        if kind in ("sup", "sub", "supsign", "subsign"):
+            sign = kind.endswith("sign")
+            sx = t["sxsign"] if sign else t["sx"]
+            sy = t["sysign"] if sign else t["sy"]
+            dy = t["dysign"] if sign else t["dy"]
+            if kind.startswith("sub"):
+                dy += t["subdy"]
+            b = _bbox(glyf, names[0])
+            # re-centre the shrunken ink in the advance; a scale about the origin
+            # would otherwise leave every superscript hard against the left side
+            dx = (ADVANCE - sx * (b[2] - b[0])) / 2 - sx * b[0]
+            comps = _leaves(glyf, names[0], sx, sy, dx, dy)
+        elif kind == "flip":
+            b = _bbox(glyf, names[0])
+            # mirror about the component's own bbox: y -> (yMin+yMax) - y, which
+            # re-seats it on exactly the baseline and cap-height it occupied.
+            comps = _leaves(glyf, names[0], 1.0, -1.0, 0.0, b[1] + b[3])
+        elif kind == "stack":
+            base, mark = names
+            bb, mb = _bbox(glyf, base), _bbox(glyf, mark)
+            # centre the mark over the base's ink, the way the face's own i does
+            dx = (bb[0] + bb[2]) / 2 - (mb[0] + mb[2]) / 2
+            comps = _leaves(glyf, base) + _leaves(glyf, mark, 1.0, 1.0, dx, 0.0)
+        else:
+            die(f"unknown fabrication kind {kind!r}")
+
+        g = Glyph()
+        g.numberOfContours = -1
+        g.components = [_component(*c) for c in comps]
+        name = f"uni{cp:04X}"
+        if name in glyf.glyphs:
+            die(f"{name} already exists — fabricating over a real glyph")
+        glyf.glyphs[name] = g
+        font.setGlyphOrder(font.getGlyphOrder() + [name])
+        glyf.glyphOrder = font.getGlyphOrder()
+        g.recalcBounds(glyf)
+        font["hmtx"].metrics[name] = (ADVANCE, g.xMin)
+        for sub in font["cmap"].tables:
+            sub.cmap[cp] = name
+        made.append((cp, name, (g.xMin, g.yMin, g.xMax, g.yMax), len(g.components)))
+    font["maxp"].numGlyphs = len(font.getGlyphOrder())
+    return made
+
+
+def strip_component_only(font):
+    """Drop the cmap entries for glyphs borrowed purely as components.
+
+    U+0394 is served by the GREEK face. The latin face needs its outline for the
+    nabla, but must not claim the codepoint — otherwise the derived unicode-range
+    would grow to cover it and, being declared second, would win the overlap and
+    pull greek text out of the greek file.
+    """
+    for cp in sorted(COMPONENT_ONLY):
+        for sub in font["cmap"].tables:
+            sub.cmap.pop(cp, None)
+
+
+
 
 
 def run(*argv, epoch=None):
@@ -463,9 +806,15 @@ def build():
         # makes a rebuild monotonic — coverage can only ever grow.
         floor = set(TTFont(LATIN).getBestCmap()) if LATIN.exists() else set()
         wanted = {ord(c) for c in need if ord(c) in src_cmap and ord(c) not in declared_greek}
-        target = sorted(floor | wanted)
-        print(f"latin target: {len(target)} codepoints "
-              f"({len(floor)} kept from the shipped face, {len(target) - len(floor)} added)")
+        # Fabricated codepoints are NOT requested from the subsetter — 2.211 has
+        # no glyphs for them. What has to be requested is their COMPONENTS, plus
+        # any borrowed outline the latin face would not otherwise carry.
+        components = {c for _k, parts, _n in FABRICATED.values() for c in parts}
+        subset_cps = (floor | wanted | components | COMPONENT_ONLY) - set(FABRICATED)
+        target = sorted(subset_cps)
+        print(f"latin target: {len(target)} codepoints from the subsetter "
+              f"({len(floor & subset_cps)} kept from the shipped face, "
+              f"{len(subset_cps - floor)} added), plus {len(FABRICATED)} fabricated")
 
         epoch = TTFont(source_ttf)["head"].modified - FONT_EPOCH_OFFSET
         cps = td / "cps.txt"
@@ -478,20 +827,53 @@ def build():
             "--flavor=woff2", f"--output-file={out}",
             "--no-hinting", "--glyph-names", "--drop-tables+=HVAR", epoch=epoch)
 
-        # Prove no glyph the page already renders was redrawn. This is the whole
-        # justification for pinning google/fonts rather than JetBrains upstream,
-        # so it is asserted on every build, not taken on trust.
+        # ---- fabrication, on the subsetted font, before it is saved ---------
+        # recalcTimestamp=False, or save() re-stamps head.modified from the wall
+        # clock and undoes the epoch the subsetter was given — assigning the
+        # field by hand is not enough, the head table overwrites it at compile.
+        # recalcBBoxes stays ON: the fabricated composites need real bounds.
+        font = TTFont(out, recalcTimestamp=False)
+        # gvar validates its glyphCount against the glyph order when it is
+        # decompiled, so every table has to be read BEFORE the order grows —
+        # otherwise the first access after fabrication asserts.
+        font.ensureDecompiled()
+        t = derive_transforms(font)
+        print(f"derived from the face: letters x{t['sx']:.4f} y{t['sy']:.4f} dy{t['dy']:.1f} "
+              f"(spreads {t['sx_spread']:.4f}/{t['sy_spread']:.4f}); "
+              f"signs x{t['sxsign']:.4f} y{t['sysign']:.4f} dy{t['dysign']:.1f}; "
+              f"subscript drop {t['subdy']}; self-check off by {t['check_err']:.1f} units")
+        made = fabricate(font, t)
+        strip_component_only(font)
+        font.save(out)
+        for cp, name, bb, ncomp in made:
+            print(f"  fabricated U+{cp:04X} {chr(cp)} as {name}: {ncomp} component(s), bbox {bb}")
+
+        # Prove no glyph that came from the pinned source was redrawn. This is
+        # the whole justification for pinning google/fonts rather than JetBrains
+        # upstream, so it is asserted on every build, not taken on trust.
+        #
+        # Fabricated codepoints are held to a DIFFERENT standard, deliberately.
+        # They are regenerated from the derived constants every build, so an
+        # improvement to a recipe legitimately moves one — and a guard that
+        # cannot tell that apart from an upstream glyph drifting would make the
+        # recipes unimprovable. So: native outlines may never move, fabricated
+        # ones may, and when they do it is printed rather than swallowed.
         if LATIN.exists():
             was, now = decomposed(TTFont(LATIN)), decomposed(TTFont(out))
+            fab = set(FABRICATED)
             drift = [cp for cp in was if cp in now and was[cp] != now[cp]]
+            native_drift = [cp for cp in drift if cp not in fab]
             lost = [cp for cp in was if cp not in now]
-            if drift:
-                die(f"{len(drift)} existing glyphs were redrawn: "
-                    + " ".join(f"U+{c:04X}" for c in drift[:20]))
+            if native_drift:
+                die(f"{len(native_drift)} glyphs from the pinned source were redrawn: "
+                    + " ".join(f"U+{c:04X}" for c in native_drift[:20]))
             if lost:
                 die(f"{len(lost)} codepoints regressed out of the face: "
                     + " ".join(f"U+{c:04X}" for c in lost[:20]))
-            print(f"outline check: {len(was)} existing codepoints, 0 redrawn, 0 lost")
+            print(f"outline check: {len(was) - len(was.keys() & fab)} native codepoints, "
+                  f"0 redrawn, 0 lost")
+            for cp in sorted(set(drift) & fab):
+                print(f"  RECIPE CHANGED: U+{cp:04X} {chr(cp)} differs from the shipped build")
 
         LATIN.write_bytes(out.read_bytes())
         built = TTFont(LATIN)
