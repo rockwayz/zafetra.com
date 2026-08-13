@@ -15,9 +15,11 @@ Faces, by ruling:
     plus a glyph-metric diff against Georgia as a belt-and-braces check.
     The PNG freezes this rendering as the canonical wordmark for every
     viewer, including those whose own device would fall back down the stack.
-  - Motto: the repo's own JetBrains Mono latin subset (assets/asset-08.woff2),
+  - Motto: the repo's own JetBrains Mono latin subset (assets/asset-09.woff2),
     decompressed in memory with fontTools. Every glyph the motto needs —
     including U+2019 — is asserted present in the cmap before rendering.
+    That subset was rebuilt by tools/make-fonts.py, which proves glyph-for-glyph
+    that no existing outline moved — so the card this renders is unchanged.
 
 Renders at 2x (2400x1260) and downscales LANCZOS to 1200x630.
 Exits nonzero, producing nothing, if any face or glyph cannot be proven.
@@ -34,7 +36,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "assets" / "og.png"
-JBM_WOFF2 = ROOT / "assets" / "asset-08.woff2"
+JBM_WOFF2 = ROOT / "assets" / "asset-09.woff2"
 DIDOT_TTC = Path("/System/Library/Fonts/Supplemental/Didot.ttc")
 GEORGIA = Path("/System/Library/Fonts/Supplemental/Georgia.ttf")
 
