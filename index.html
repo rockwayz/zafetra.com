@@ -172,7 +172,7 @@
      without this the ground shows through at short, wide aspects: at 1600×420
      the field ran x 516..1608 and left 516px of bare #040404 down the left.
      the +16/+12 are the parallax plus slack: it drifts the wrap ±6px across and
-     ±4px down (the *-12 and *-8 in the mousemove handler), so 2× that is the
+     ±4px down (the *-12 and *-8 in the pointermove handler), so 2× that is the
      real requirement — a floor that only just reached the edge at rest would
      open that much bare ground at full drift. the extra 2px per side absorbs
      rounding: --eye-dx is written to 2dp, and at 1600×420 an exactly-tight
@@ -1048,6 +1048,22 @@ h1 { position: relative;
 // Wrapped at the invocation rather than around a re-indented body, so this
 // stays a two-line change to a 500-line block.
 try { (function () {
+  // This query decides WHICH DEVICES get the cursor system; the Pointer Events
+  // below decide WHICH INPUTS drive it, and the two are independent. The query
+  // describes the PRIMARY pointing device only, so a touchscreen laptop or a
+  // pen-and-mouse workstation matches it — and under the old mouse events, the
+  // touchscreen and the pen on those machines drove nothing at all. Pointer
+  // Events are deliberately taken from every pointerType rather than filtered
+  // to 'mouse': the gate has already established this is a fine-pointer
+  // machine, and on one, a pen or a finger is a legitimate way to move the
+  // torch. Migrating the family does not change this gate's value, so the set
+  // of devices that reach the effects at all is exactly as before.
+  //
+  // The measured cost of accepting every pointerType: on a hybrid, a finger
+  // tap ends with pointerleave (the spec fires it on lift, since a touch
+  // pointer ceases to exist), so the torch fades even though the mouse cursor
+  // never left. It re-lights on the next move, and hideOrb deliberately leaves
+  // cx/cy alone, so it eases back rather than teleporting.
   var fineQ = window.matchMedia('(hover: hover) and (pointer: fine)');
   var reduceQ = window.matchMedia('(prefers-reduced-motion: reduce)');
   var fcQ = window.matchMedia('(forced-colors: active)');
@@ -1234,7 +1250,7 @@ try { (function () {
     // glitch wave reads it, and would stay in 'spin' mode forever.
     if (!effectsOn) { ticking = false; speed.v = 0; return; }
     // Math.min clamped the TOP of dt but nothing clamped the bottom, and dt is
-    // routinely NEGATIVE: `last` is performance.now() taken inside the mousemove
+    // routinely NEGATIVE: `last` is performance.now() taken inside the pointermove
     // handler, and the rAF that handler schedules runs in the SAME frame, whose
     // timestamp is the frame START and therefore precedes it. Measured over 18
     // resume events: -0.2 to -2.5ms, 18/18 negative. A negative dt makes
@@ -1376,7 +1392,7 @@ try { (function () {
   // webfont today, but licensing NB International would make this load-bearing.
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
 
-  window.addEventListener('mousemove', function (e) {
+  window.addEventListener('pointermove', function (e) {
     if (!effectsOn) return;
     tx = e.clientX; ty = e.clientY;
     // cold start ONLY: nothing is on screen yet, so placing the damped point on
@@ -1406,10 +1422,25 @@ try { (function () {
     torch.style.opacity = '0';
     if (reveal) reveal.style.opacity = '0';
   }
-  document.documentElement.addEventListener('mouseleave', hideOrb);
+  // documentElement, not document or window: leave events do not bubble, and on
+  // the root element this is the UA's "pointer left the viewport" signal.
+  document.documentElement.addEventListener('pointerleave', hideOrb);
+  // pointercancel has no mouse-event counterpart, and it is the reason this
+  // migration needs more than a rename. The UA fires it when it takes the
+  // pointer over — a touch promoted into a scroll or an OS edge gesture, a
+  // native drag starting, a pen leaving range — and when it does, NO pointerup
+  // and NO pointerleave need follow. Without this the torch and the 480px
+  // reveal window stay lit under a pointer that no longer exists, which is
+  // exactly the stuck-frame hideOrb was written to prevent.
+  document.documentElement.addEventListener('pointercancel', hideOrb);
   window.addEventListener('blur', hideOrb);
-  document.addEventListener('mousedown', function () { orb.classList.add('down'); }, { passive: true });
-  document.addEventListener('mouseup', function () { orb.classList.remove('down'); }, { passive: true });
+  // Same cancel hazard, second victim: hideOrb does not touch `.down`, so a
+  // press that ends in pointercancel instead of pointerup would leave the orb
+  // stuck in its pressed state permanently. Both endings release it.
+  function releaseOrb() { orb.classList.remove('down'); }
+  document.addEventListener('pointerdown', function () { orb.classList.add('down'); }, { passive: true });
+  document.addEventListener('pointerup', releaseOrb, { passive: true });
+  document.addEventListener('pointercancel', releaseOrb, { passive: true });
 
   // ---- glitch wave: a front launches at the spiral's eye and travels the coil;
   //      segments it crosses become same-length multi-language junk, then decode
