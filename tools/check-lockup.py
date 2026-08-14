@@ -56,12 +56,32 @@ CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 # real phone width and the old no-JS clip band's upper edge. 375 is the iPhone
 # SE/mini. 641 is the typewriter breakpoint. The rest span the font-size clamp's
 # floored, proportional and capped regimes.
-WIDTHS = [280, 360, 375, 641, 760, 900, 1024, 1440]
+# 300/320 are where the mark was measured sitting across TWO letters and 340 is
+# the first width where it sits on one; those three were absent, which is how the
+# collision survived this check -- every width it tested was above the threshold.
+# 220 is measured but NOT asserted, see CONTAINMENT_ASSERTED_FROM.
+WIDTHS = [220, 280, 300, 320, 340, 360, 375, 641, 760, 900, 1024, 1440]
+
+# The h1 is `nowrap` at a 2.75rem font-size floor -- 265px of ink -- so below
+# ~270px of usable width the brand name cannot fit and clips at both edges.
+# Measured: it fits at 280px (7.4→272.6) and clips at 220px (-22.6→242.6). 280 is
+# the Galaxy Fold cover screen and the narrowest viewport any shipped device
+# reports, so containment is asserted from there. 220 is kept in the table
+# because knowing exactly where the cliff is beats not measuring past the edge --
+# closing that gap means letting the wordmark shrink below its floor, which is a
+# type decision and not this check's to make.
+CONTAINMENT_ASSERTED_FROM = 280
 
 # Below this the no-JS render drops the mark rather than park it on the final
 # letter; see the matching media query in index.html. Asserted here so the two
 # cannot drift apart.
 MARK_HIDDEN_BELOW = 380
+
+# With JS the shift is CAPPED rather than zeroed, and the mark is anchored to the
+# card's right edge, so every pixel the wordmark fails to slide is a pixel the
+# mark travels into it. Measured: 3 letters covered at 220-276px, 2 at 300-320px,
+# 1 from 340px up. One letter is the design -- the mark parks on the final A.
+MARK_HIDDEN_BELOW_ANY = 340
 
 
 def die(msg):
@@ -95,9 +115,25 @@ addEventListener('load', function(){ setTimeout(function(){
       var logo=d.querySelector('.logo');
       var lvis=win.getComputedStyle(logo).display!=='none';
       var lr=logo.getBoundingClientRect();
+      // How many of the wordmark's OWN letters does the mark's box cover? The
+      // mark is meant to tuck into the final glyph, so 1 is correct and 2 is the
+      // collision. Per-character ranges, not the h1 box: the h1 box overlaps the
+      // mark by design at every width.
+      var covered=0, tn=h1.firstChild;
+      if(lvis && tn && tn.nodeType===3){
+        for(var i=0;i<tn.length;i++){
+          var q=d.createRange(); q.setStart(tn,i); q.setEnd(tn,i+1);
+          var cb=q.getBoundingClientRect();
+          if(Math.min(cb.right,lr.right)-Math.max(cb.left,lr.left) > 1) covered++;
+        }
+      }
+      var motto=d.querySelectorAll('main p')[0];
+      var mo=motto?motto.getBoundingClientRect():null;
       out.push({w:+f.dataset.w, vw:win.innerWidth, left:+r.left.toFixed(1),
                 right:+r.right.toFixed(1), applied:ap||null,
                 markShown:lvis, markRight:+lr.right.toFixed(1),
+                markCovers:covered,
+                mottoLeft:mo?+mo.left.toFixed(1):null, mottoRight:mo?+mo.right.toFixed(1):null,
                 locked:d.documentElement.classList.contains('mark-locked'),
                 fs:win.getComputedStyle(h1).fontSize});
     }catch(e){ out.push({w:+f.dataset.w, error:String(e)}); }
@@ -162,18 +198,25 @@ def main():
             if r["vw"] != r["w"]:
                 fails.append(f"{cond} @ {r['w']}px: viewport came back {r['vw']}px — width was clamped")
             bad = []
+            note = []
+            sink = bad if r["w"] >= CONTAINMENT_ASSERTED_FROM else note
             if r["left"] < -0.5:
-                bad.append(f"left {r['left']} < 0")
+                sink.append(f"left {r['left']} < 0")
             if r["right"] > r["vw"] + 0.5:
-                bad.append(f"right {r['right']} > {r['vw']}")
+                sink.append(f"right {r['right']} > {r['vw']}")
             # the cap must have run iff the page's script ran
             if cond == "js-on" and not r["applied"]:
                 bad.append("--word-shift-applied UNSET though JS ran")
             if cond == "js-off" and r["applied"]:
                 bad.append(f"--word-shift-applied set to {r['applied']} with no JS")
-            # the mark is dropped ONLY when it was never placed, and only narrow
-            if cond == "js-on" and not r["markShown"]:
-                bad.append("mark hidden even though JS placed it")
+            # the mark is dropped when it was never placed, AND when the
+            # viewport is too narrow for the lockup to survive the shift cap
+            if cond == "js-on":
+                want_shown = r["w"] >= MARK_HIDDEN_BELOW_ANY
+                if r["markShown"] != want_shown:
+                    bad.append(f"mark {'shown' if r['markShown'] else 'hidden'} at {r['w']}px; "
+                               f"expected {'shown' if want_shown else 'hidden'} "
+                               f"(lockup threshold {MARK_HIDDEN_BELOW_ANY}px)")
             if cond == "js-on" and not r["locked"]:
                 bad.append(".mark-locked absent though JS ran")
             if cond == "js-off":
@@ -184,9 +227,24 @@ def main():
             # nothing may hang off the right edge either
             if r["markShown"] and r["markRight"] > r["vw"] + 0.5:
                 bad.append(f"mark right {r['markRight']} > {r['vw']}")
+            # THE ASSERTION THIS CHECK WAS MISSING: the mark may tuck into the
+            # final glyph and no further. Two letters is the collision.
+            if r["markShown"] and r.get("markCovers", 0) > 1:
+                bad.append(f"mark covers {r['markCovers']} letters of the wordmark "
+                           f"(1 = tucked into the final glyph, >1 = collision)")
+            # REPORTED, NOT ASSERTED: the motto is nowrap with a 286px intrinsic
+            # floor, so it overhangs the viewport by ~2px from 300 to 380px. Both
+            # available fixes (let it wrap, or drop the clamp floor) change the
+            # composition, so this is an owner call and not a gate -- but it is
+            # printed at every width so it cannot go unnoticed again.
+            if r.get("mottoLeft") is not None and (r["mottoLeft"] < -0.5 or r["mottoRight"] > r["vw"] + 0.5):
+                note.append(f"motto {r['mottoLeft']}→{r['mottoRight']} overhangs")
+            mo = f"  [below the asserted floor: {'; '.join(note)}]" if note and r["w"] < CONTAINMENT_ASSERTED_FROM \
+                else (f"  [{'; '.join(note)}]" if note else "")
             print(f"{cond:8} {r['w']:6} {r['left']:9.1f} {r['right']:9.1f} "
                   f"{str(r['applied'] or '-'):>10} {r['fs']:>8}  "
-                  f"mark={'yes' if r['markShown'] else 'no ':<3} {'; '.join(bad) if bad else 'ok'}")
+                  f"mark={'yes' if r['markShown'] else 'no ':<3} covers={r.get('markCovers', 0)} "
+                  f"{'; '.join(bad) if bad else 'ok'}{mo}")
             fails += [f"{cond} @ {r['w']}px: {b}" for b in bad]
 
     if "--render" in sys.argv[1:]:
@@ -197,7 +255,8 @@ def main():
         for f in fails:
             print(f"FAIL: {f}")
         die(f"{len(fails)} lockup assertion(s) failed")
-    print("\nOK: the wordmark sits inside the viewport at every width, with and without JS")
+    print("\nOK: the wordmark sits inside the viewport at every width with and without JS, "
+          "and the mark never covers more than the final glyph")
 
 
 if __name__ == "__main__":

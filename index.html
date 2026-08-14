@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-l/nJM/El7NAoQh3sdit8zSrA51IyicjKT8jkbh7+fyI=' 'sha256-kuMWeAlTEF2fOZbVkICh/G16vlKpNZnBxE08YVU0wTA='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-AXW+mg/CP4BOC7oH+8gD47t8yNVgcht/eckIwxXgCiE='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-l/nJM/El7NAoQh3sdit8zSrA51IyicjKT8jkbh7+fyI=' 'sha256-kuMWeAlTEF2fOZbVkICh/G16vlKpNZnBxE08YVU0wTA='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-ncvGAlhIeJc5nYVJnbJVDVuPA+i5kr1augrgzgyt86k='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -409,6 +409,31 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
      .mark-locked is set at the END of lockMarkAndEye(), after all three hops
      measured, so any early return there is treated as "unplaced" too. */
   html:not(.mark-locked) .logo { display: none; }
+}
+/* AND THE SAME THING HAPPENS WITH JS ON, which the rule above could never
+   catch. It is written `html:not(.mark-locked)`, and lockMarkAndEye() sets
+   .mark-locked unconditionally once it measures — confirmed set at every width
+   down to 220px — so that rule can only ever fire for a no-JS visitor, who is
+   precisely the visitor whose shift is zero and whose mark is therefore already
+   handled. With JS the shift is CAPPED to the room that exists rather than
+   zeroed, and the cap is what breaks the lockup: the mark is anchored to the
+   card's right edge, so every pixel the wordmark fails to slide is a pixel the
+   mark travels into it.
+   Measured on the shipped file, JS on, real viewports — letters of the wordmark
+   the mark's box covers, and the mark's left edge against the final glyph's:
+       220-276px   3 letters    -72.1 .. -44.1px   shift capped to 0.0px
+       300-320px   2 letters    -22.7 ..  -6.1px   shift 9.4 / 19.4px
+       340px+      1 letter      +3.9px and up     shift 29.4px and up
+   One letter IS the design — the mark parks on the final A and tucks into it.
+   Two is the defect. So 340px is the width where the lockup stops working, and
+   below it the mark is not drawn, for the same reason and with the same
+   consequence as the no-JS case above: aria-hidden, so nothing is lost.
+   Deliberately NOT folded into the 380px block. That block's threshold is about
+   the FALLBACK going to zero; this one is about the CAP running out, they are
+   different mechanisms with different widths, and merging them would hide a
+   mark at 360-380px that is sitting correctly on its letter. */
+@media (max-width: 339.98px) {
+  .logo { display: none; }
 }
 @media print {
   .ghost-wrap, #orb, #torch, #reveal, #feather, body::after { display: none !important; }
