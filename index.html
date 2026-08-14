@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-l/nJM/El7NAoQh3sdit8zSrA51IyicjKT8jkbh7+fyI=' 'sha256-zc4CHS2pxkkq2GveDzH6V5tFmDfA8lIsQ37llKMVBU0='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-vNzoKpTSRhHOX/pfz906ZZcPA6uR1oiANKbAhKyBn50='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-l/nJM/El7NAoQh3sdit8zSrA51IyicjKT8jkbh7+fyI=' 'sha256-qaXVJ1VCt3V50FVcKUGFGZ+6ja9HsmvzfzEht3DZSxA='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-vNzoKpTSRhHOX/pfz906ZZcPA6uR1oiANKbAhKyBn50='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -1166,9 +1166,24 @@ try { (function () {
   // release is cancelled the moment motion resumes — a release that lands on a
   // sweep already in flight is the failure this is built to avoid.
   //
-  // RELEASE_MS = 3000 IS A STARTING VALUE, NOT A MEASURED ONE. Nothing here was
-  // profiled and no frame-rate claim attaches to it. Raise it if re-sweeping
-  // after a pause hitches; lower it to hand the texture back sooner.
+  // RELEASE_MS is the pointer-stillness the release waits for, and it is also
+  // the FAILSAFE's window — see the wave loop, which force-releases when the
+  // pointer has been still this long and the wave has healed, so a stalled
+  // settle can no longer pin the textures for the session.
+  //
+  // 3000 is still a chosen number, but the latency it produces is now measured.
+  // The failsafe also waits for the wave to stop writing, and one sweep runs
+  // ~3.5s, so the textures actually come back ~4.2s after the last pointer
+  // event rather than 3.0s — headed, N=3: 4177 / 4177 / 4256ms. Raise it if
+  // re-sweeping after a pause hitches; lower it to hand the texture back
+  // sooner, but below ~3.5s nothing moves, because it is the sweep and not this
+  // number that the release is waiting on.
+  //
+  // KNOWN AND ACCEPTED: the release lands 308-325ms BEFORE the wave's final
+  // heal writes (heal completes at 4485 / 4520 / 4581ms against the release
+  // times above), so that last handful of writes rasterizes unpromoted. It is
+  // the tail of a settle nobody is watching, and holding three full-viewport
+  // textures another third of a second to cover it is the worse trade.
   //
   // #orb, #torch and #reveal keep their static will-change: they are small and,
   // under .has-orb, always live.
@@ -1179,9 +1194,6 @@ try { (function () {
   // can land in the middle of a run, hence the catch-up at the end of buildLit().
   // The three are the only elements on the page transformed every frame that do
   // not keep a static will-change; #orb, #torch and #reveal do keep theirs.
-  // It is also the failsafe's window — see the wave loop, which force-releases
-  // when the pointer has been still this long and the wave has healed, so a
-  // stalled settle can no longer pin the textures for the session.
   var RELEASE_MS = 3000;
   var releaseTimer = null, promoted = false;
   function promotionTargets() {
