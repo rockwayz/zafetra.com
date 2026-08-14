@@ -60,7 +60,18 @@ CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 # the first width where it sits on one; those three were absent, which is how the
 # collision survived this check -- every width it tested was above the threshold.
 # 220 is measured but NOT asserted, see CONTAINMENT_ASSERTED_FROM.
-WIDTHS = [220, 280, 300, 320, 340, 360, 375, 641, 760, 900, 1024, 1440]
+WIDTHS = [220, 280, 300, 320, 340, 360, 375, 379, 381, 641, 760, 900, 1024, 1440]
+
+# 379 and 381 exist ONLY to be compared with each other. Every assertion above is
+# a property of one width in isolation, and the worst bug this check has ever
+# missed was invisible that way: hiding the mark made hop 2 measure a display:none
+# rect, so --eye-dx became minus the viewport centre and the field's eye jumped
+# 280px -- while BOTH sides remained individually well-formed. A discontinuity is
+# only visible when you put the two sides next to each other, so the pair is
+# asserted as a pair. See BOUNDARY below.
+BOUNDARY = (379, 381)
+EYE_DX_TOLERANCE_PX = 1.0      # the coil's rendered translate must be continuous
+INK_CENTRE_TOLERANCE_PX = 55.0  # the wordmark may shift to clear the mark, not teleport
 
 # The h1 is `nowrap` at a 2.75rem font-size floor -- 265px of ink -- so below
 # ~270px of usable width the brand name cannot fit and clips at both edges.
@@ -139,6 +150,20 @@ addEventListener('load', function(){ setTimeout(function(){
                 mottoLeft:mo?+mo.left.toFixed(1):null, mottoRight:mo?+mo.right.toFixed(1):null,
                 locked:d.documentElement.classList.contains('mark-locked'),
                 eyeDx:win.getComputedStyle(d.documentElement).getPropertyValue('--eye-dx').trim(),
+                // The RENDERED result, not the variable. --eye-dx is an em
+                // fallback on one side of the boundary and an inline px value on
+                // the other, and `em` resolves against the element that USES it
+                // -- .ghost, at its clamped font-size -- so measuring the token
+                // on a probe div reads it against the wrong font and invents a
+                // discontinuity that is not on the page. The coil's actual
+                // translate is the thing that has to be continuous.
+                eyePx:(function(){var g=d.querySelector('.ghost');
+                  if(!g) return null;
+                  var m=win.getComputedStyle(g).transform;
+                  var n=m&&m!=='none'?m.replace(/^matrix\(|\)$/g,'').split(','):null;
+                  return n?+parseFloat(n[4]).toFixed(2):null;})(),
+                inkCentre:(function(){var rg=d.createRange(); rg.selectNodeContents(h1);
+                  var b=rg.getBoundingClientRect(); return +((b.left+b.right)/2).toFixed(1);})(),
                 fs:win.getComputedStyle(h1).fontSize});
     }catch(e){ out.push({w:+f.dataset.w, error:String(e)}); }
   });
@@ -267,6 +292,28 @@ def main():
                   f"{'; '.join(bad) if bad else 'ok'}{mo}")
             fails += [f"{cond} @ {r['w']}px: {b}" for b in bad]
 
+    # ---- boundary continuity, asserted as a PAIR ----------------------------
+    lo_w, hi_w = BOUNDARY
+    print()
+    for cond, rows in results.items():
+        by = {r["w"]: r for r in rows if not r.get("error")}
+        lo, hi = by.get(lo_w), by.get(hi_w)
+        if not lo or not hi:
+            continue
+        d_eye = hi["eyePx"] - lo["eyePx"]
+        d_ink = (hi["inkCentre"] - hi["vw"] / 2) - (lo["inkCentre"] - lo["vw"] / 2)
+        ok_eye = abs(d_eye) <= EYE_DX_TOLERANCE_PX
+        ok_ink = abs(d_ink) <= INK_CENTRE_TOLERANCE_PX
+        print(f"{cond:8} boundary {lo_w}->{hi_w}: coil translateX {lo['eyePx']}px -> {hi['eyePx']}px "
+              f"(d {d_eye:+.2f}, tol {EYE_DX_TOLERANCE_PX}) {'ok' if ok_eye else 'DISCONTINUOUS'}; "
+              f"ink offset {lo['inkCentre'] - lo['vw'] / 2:+.1f} -> {hi['inkCentre'] - hi['vw'] / 2:+.1f} "
+              f"(d {d_ink:+.1f}, tol {INK_CENTRE_TOLERANCE_PX}) {'ok' if ok_ink else 'SNAP'}")
+        if not ok_eye:
+            fails.append(f"{cond}: the coil's translateX jumps {d_eye:+.2f}px across {lo_w}->{hi_w} "
+                         f"— the two sides of the mark threshold disagree about where the coil's eye is")
+        if not ok_ink:
+            fails.append(f"{cond}: wordmark ink centre jumps {d_ink:+.1f}px across {lo_w}->{hi_w}")
+
     if "--render" in sys.argv[1:]:
         print("\n(--render writes provenance-named panels; see tools/check-lockup.py docstring)")
 
@@ -276,7 +323,8 @@ def main():
             print(f"FAIL: {f}")
         die(f"{len(fails)} lockup assertion(s) failed")
     print("\nOK: the wordmark sits inside the viewport at every width with and without JS, "
-          "and the mark never covers more than the final glyph")
+          "the mark never covers more than the final glyph, and the two sides of the\n"
+          "    mark threshold agree about where the coil's eye is")
 
 
 if __name__ == "__main__":
