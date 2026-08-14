@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-l/nJM/El7NAoQh3sdit8zSrA51IyicjKT8jkbh7+fyI=' 'sha256-qaXVJ1VCt3V50FVcKUGFGZ+6ja9HsmvzfzEht3DZSxA='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-vNzoKpTSRhHOX/pfz906ZZcPA6uR1oiANKbAhKyBn50='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-l/nJM/El7NAoQh3sdit8zSrA51IyicjKT8jkbh7+fyI=' 'sha256-kuMWeAlTEF2fOZbVkICh/G16vlKpNZnBxE08YVU0wTA='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-AXW+mg/CP4BOC7oH+8gD47t8yNVgcht/eckIwxXgCiE='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -269,7 +269,7 @@ body::after { content: ''; position: fixed; inset: 0; z-index: 5; pointer-events
 /* cursor takeover only over decorative empty space — text keeps its I-beam */
 .has-orb main { cursor: none; }
 .has-orb .card { cursor: auto; }
-@media (forced-colors: active) { #torch, #orb, #reveal, body::after { display: none !important; } .has-orb main { cursor: auto !important; } }
+@media (forced-colors: active) { #torch, #orb, #reveal, #feather, body::after { display: none !important; } .has-orb main { cursor: auto !important; } }
 /* layered ground: warm tint toward the card, vignette at the base */
 main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 64px 24px; background: radial-gradient(52% 58% at 50% 100%, rgba(4, 4, 4, 0) 0%, rgba(0, 0, 0, 0.5) 100%), radial-gradient(120% 90% at 32% 18%, #0a0705 0%, #040404 62%); }
 /* No will-change here: promotion is handed to JS, which sets it on this element
@@ -300,9 +300,67 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
    frame. The alpha boost alone gets the colour there: at ~0.8 effective, hsl(18)
    composites to rgb(184,107,75) over #040404, which is plainly orange. */
 .ghost-lit { opacity: var(--field-lit); }
-#reveal { position: fixed; left: 0; top: 0; width: 480px; height: 480px; margin: -240px 0 0 -240px; z-index: 5; pointer-events: none; display: none; opacity: 0; will-change: transform; transition: opacity 0.35s ease; -webkit-mask-image: radial-gradient(circle at center, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 72%); mask-image: radial-gradient(circle at center, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 72%); }
+/* The torch window. It was a 480px MASKED box holding a full-viewport wrapper
+   that counter-translated to hold the clone still, and that inner motion was
+   the page's largest single cost — the measurement is in the reveal block in
+   the script. The window is full-viewport now and the circle is cut by
+   clip-path, so the clone never moves for the cursor at all and the only
+   per-frame write here is the clip's centre. That write is a compositor
+   property on this engine and not an invalidation, which is the whole bet and
+   is what the measurement below settles: with the clip rewritten every frame
+   the drag's p95 is 8.5ms, BELOW the 9.2ms of an empty-layer control that
+   moves three promoted full-viewport divs and paints nothing. An invalidation
+   on a 21.9 Mpx layer could not produce that.
+   No will-change, deliberately. Nothing on this element transforms any more,
+   and a standing texture request on a full-viewport box that cannot move is
+   the exact cost this change exists to remove. The clip is composited against
+   the clone's own layer, which the JS promotion block holds for the length of
+   a run. The 50%/45% centre is only the pre-first-frame value; tick()
+   overwrites it with the damped pointer.
+   Sized 100vw x 100vh rather than inset:0 on purpose: it inherits the box the
+   deleted .reveal-inner had, so the clone's containing block — and therefore
+   where .ghost's top:50%/left:50% puts the field — is unchanged to the pixel. */
+#reveal { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 5; pointer-events: none; display: none; opacity: 0; transition: opacity 0.35s ease; clip-path: circle(240px at 50% 45%); }
 .has-orb #reveal { display: block; }
-.reveal-inner { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; }
+/* A clip has a hard rim. The mask it replaces had a falloff, and the falloff is
+   the look — so it goes back as a separate 480px quad that only ever
+   translates: painted once, moved as a composited layer, never re-rastered.
+   The shape is the mask's own curve inverted. The mask KEPT 1.0 / 0.55 / 0 of
+   the lit layer at 0% / 45% / 72%, and both gradients resolve their
+   percentages against the same 480px box — farthest-corner radius 339px — so
+   45% and 72% mean the same 153px and 244px in both. Percentages, not pixels,
+   for exactly that reason: they are the mask's own units.
+   The MAGNITUDE is not the mask's, and this is the part that has to be
+   measured rather than derived. A mask removes the layer it is on. Ink removes
+   whatever is under it, and under it there is also the ambient field and the
+   torch glow, neither of which the mask ever touched. So ink at a flat
+   1 - mask over-removes: shot against the shipped build it ran 1.40 levels of
+   255 dark, area-weighted, and 2.3 levels dark through the whole mid-band —
+   a soft vignette around the torch, which is a worse artefact than the bright
+   ring it was fixing. The correction is solved from three frames rather than
+   guessed: the same clip with no ink at all, the same clip with the ink at
+   alpha 1, and the shipped mask as the target. Everything above this element
+   in paint order is common to all three and cancels, so what is left is the
+   alpha each radius actually wants. It comes out as the mask's shape scaled by
+   a factor running ~0.45 near the centre to ~0.86 at the rim, which is the
+   stop list below. Measured against base on the real composite: 0.43 levels
+   area-weighted rms, worst ring +0.82 — base's own run-to-run spread on the
+   same rings is 0.43. Checked at a second torch position it was not fitted to,
+   where it holds at 0.68 against the flat curve's 1.58.
+   Past 70.7% the ink turns and falls to zero. The clip has already ended the
+   lit layer at 240px, so ink beyond that has nothing left to take out and
+   would eat the ambient field instead; the solve wants 0.28 at 73.7% and 0 by
+   76.6%, and the tail below is that. z-index 5, not 6: above #reveal by DOM
+   order, below .wrap, so the torch dims the field it is lighting and never the
+   card.
+   The one construction that would need no correction at all is a
+   mix-blend-mode inside an `isolation: isolate` on #reveal, which would
+   multiply the lit layer and nothing else. It is NOT taken here and is not
+   measured: the last blend mode on this page doubled the drag's median frame
+   time (see .ghost), and this pass exists to remove raster, not to trade one
+   source of it for another. */
+#feather { position: fixed; left: 0; top: 0; width: 480px; height: 480px; margin: -240px 0 0 -240px; z-index: 5; pointer-events: none; display: none; opacity: 0; will-change: transform; transition: opacity 0.35s ease; background: radial-gradient(circle at center, rgba(4, 4, 4, 0) 0%, rgba(4, 4, 4, 0.13) 30%, rgba(4, 4, 4, 0.26) 45%, rgba(4, 4, 4, 0.45) 53%, rgba(4, 4, 4, 0.69) 62%, rgba(4, 4, 4, 0.84) 70.7%, rgba(4, 4, 4, 0.30) 73%, rgba(4, 4, 4, 0) 76%); }
+.has-orb #feather { display: block; }
 .ghost.mid  { opacity: var(--field-mid); }
 .ghost.aura { opacity: var(--field-aura); }
 /* The field has NO entrance fade (owner call 2026-08-13): every layer paints at
@@ -353,7 +411,7 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
   html:not(.mark-locked) .logo { display: none; }
 }
 @media print {
-  .ghost-wrap, #orb, #torch, #reveal, body::after { display: none !important; }
+  .ghost-wrap, #orb, #torch, #reveal, #feather, body::after { display: none !important; }
   html, body { background: #fff; }
   main { min-height: auto; background: #fff; }
   h1 { color: #040404; }
@@ -1150,16 +1208,16 @@ try { (function () {
   var speed = { v: 0 };
   var lastPointerAt = 0;   // wall clock, for the promotion failsafe below
   var effectsOn = false;
-  var lit = null, reveal = null, revealInner = null, litWrap = null;
+  var lit = null, reveal = null, litWrap = null, feather = null;
 
   // ---- layer promotion --------------------------------------------------
-  // `will-change: transform` is a standing request for a GPU texture, and the
-  // three managed elements — the field wrapper, the torch clone's wrapper, and
-  // the counter-translated .reveal-inner — are all full-viewport layers, so the
-  // choice is a real one with no free option:
+  // `will-change: transform` is a standing request for a GPU texture, and both
+  // managed elements — the ambient field wrapper and the torch clone's wrapper
+  // — are full-viewport layers, so the choice is a real one with no free
+  // option:
   //   held statically (what this was) the texture is retained for the life of
   //     the page whether or not anything ever moves;
-  //   dropped the instant the pointer settles, every new sweep re-promotes two
+  //   dropped the instant the pointer settles, every new sweep re-promotes both
   //     full-viewport layers at exactly the moment the frame budget is tightest.
   // So the promotion outlives the run instead: set when a run starts, released
   // only if nothing has moved for RELEASE_MS after it settles, and the pending
@@ -1182,23 +1240,25 @@ try { (function () {
   // KNOWN AND ACCEPTED: the release lands 308-325ms BEFORE the wave's final
   // heal writes (heal completes at 4485 / 4520 / 4581ms against the release
   // times above), so that last handful of writes rasterizes unpromoted. It is
-  // the tail of a settle nobody is watching, and holding three full-viewport
+  // the tail of a settle nobody is watching, and holding both full-viewport
   // textures another third of a second to cover it is the worse trade.
   //
-  // #orb, #torch and #reveal keep their static will-change: they are small and,
-  // under .has-orb, always live.
+  // #orb, #torch and #feather keep their static will-change: they are small
+  // and, under .has-orb, always live. #reveal is NOT among them any more — it
+  // is full-viewport and no longer transforms, so a texture for it would be the
+  // largest standing request on the page bought for an element that cannot
+  // move.
   //
-  // All three targets are listed EXPLICITLY rather than selected by class.
-  // litWrap is a .ghost-wrap clone, so anything class-based would move under us
-  // — and neither it nor revealInner exists until buildLit() runs at idle, which
-  // can land in the middle of a run, hence the catch-up at the end of buildLit().
-  // The three are the only elements on the page transformed every frame that do
-  // not keep a static will-change; #orb, #torch and #reveal do keep theirs.
+  // Both targets are listed EXPLICITLY rather than selected by class. litWrap
+  // is a .ghost-wrap clone, so anything class-based would move under us — and
+  // it does not exist until buildLit() runs at idle, which can land in the
+  // middle of a run, hence the catch-up at the end of buildLit(). These two are
+  // the only elements on the page transformed every frame that do not keep a
+  // static will-change; #orb, #torch and #feather do keep theirs.
   var RELEASE_MS = 3000;
   var releaseTimer = null, promoted = false;
   function promotionTargets() {
     var t = [ghostWrap];
-    if (revealInner) t.push(revealInner);
     if (litWrap) t.push(litWrap);
     return t;
   }
@@ -1249,9 +1309,55 @@ try { (function () {
   function buildLit() {
     if (lit) return;
     {
-      // The lit layer is a pristine clone shown through a fixed torch-window.
-      // The window's mask is static; the clone counter-translates inside it —
-      // every per-frame update is a transform, so nothing re-rasterizes.
+      // The lit layer is a pristine clone shown through a torch-window. It is
+      // never scrambled: the wave's node list is built from the AMBIENT wrap
+      // only, and this is a separate cloneNode(true), so the window has always
+      // shown a snapshot. Measured on this file over a full wave, sampling both
+      // cores every 450ms: the ambient core's text hash changed on 9 of 10
+      // samples and this clone's on 0 of 10.
+      //
+      // WHAT MOVED, AND WHY. The window used to be a 480px masked box holding
+      // this clone in a counter-translating wrapper, on the standing ruling
+      // that translating a STATICALLY masked element is cheap because nothing
+      // re-rasterizes. That ruling stands for the masked box itself — and it
+      // does not cover what was actually being done here, which is moving two
+      // nested full-viewport layers INSIDE the mask. That is a different
+      // operation and it was the page's dominant drag cost. Named by trace over
+      // an 8s drag: 7497ms of RasterTask against 137ms of Paint, the main
+      // thread blocked in WaitForCommitCompletion for 7119ms of it, and 99.7%
+      // of the raster charged to two .ghost-wrap layers at 4681x4680 device
+      // pixels — 21.9 Mpx each against a 5.18 Mpx viewport. Freezing this
+      // clone's transform alone took p95 from 34-42ms to 9.3ms and renderer CPU
+      // from 120-128% to 41%. So the open question the ruling left — does the
+      // counter-translated inner re-rasterize? — is answered: it does, and it
+      // was most of the bill.
+      //
+      // So the clone stops moving for the cursor. It is world-fixed, the window
+      // is full-viewport, and the cursor is followed by the clip alone. The only
+      // transform left here is the parallax, which the ambient copy takes too
+      // and which both must take or the two drift apart by up to 6px inside the
+      // window.
+      //
+      // Measured on THIS file, N=3, headed, GPU on, interleaved run-for-run
+      // against the build it replaces so no drift in the machine lands on one
+      // side only — and against an empty-layer control that fixes the floor:
+      //
+      //                    median      p95   dropped   renderer CPU
+      //   before          8.3-16.6  40.7-49.3  14-62%     115-128%
+      //   this build           8.3    8.5-8.6    0.8%       41-43%
+      //   empty control        8.3        9.2      0%        10.5%
+      //
+      // The drag is AT the harness floor: p95 lands under the control's, which
+      // moves the same promoted layers over an empty page. The 41-43% that is
+      // left against the control's 10.5% is the ambient field's own 21.9 Mpx
+      // layer, which this change does not touch and was never going to.
+      //
+      // It is NOT a memory saving, and the layer tree says so: composited
+      // texture is 221.3 MB before and 221.3 MB after. The .reveal-inner layer
+      // goes and #feather takes over the drawing layer #reveal used to own, so
+      // the count falls 17 -> 16 and the bytes do not move. Both 21.9 Mpx
+      // (83.6 MB) field layers are still allocated. What changed is that one of
+      // them stopped being re-rastered every frame.
       litWrap = document.createElement('div');
       litWrap.className = 'ghost-wrap';
       litWrap.style.maskImage = 'none';
@@ -1295,17 +1401,24 @@ try { (function () {
       reveal = document.createElement('div');
       reveal.id = 'reveal';
       reveal.setAttribute('aria-hidden', 'true');
-      revealInner = document.createElement('div');
-      revealInner.className = 'reveal-inner';
-      revealInner.appendChild(litWrap);
-      reveal.appendChild(revealInner);
+      // litWrap is a direct child now. The wrapper that used to sit between
+      // them existed only to carry the counter-translate, and #reveal inherited
+      // its box exactly, so the clone's containing block is unchanged.
+      reveal.appendChild(litWrap);
       document.querySelector('main').appendChild(reveal);
+      // The falloff, as its own quad. Appended AFTER #reveal and sharing its
+      // z-index, so DOM order puts it over the lit layer and the stylesheet's
+      // z-index 6 on .wrap keeps it under the card.
+      feather = document.createElement('div');
+      feather.id = 'feather';
+      feather.setAttribute('aria-hidden', 'true');
+      document.querySelector('main').appendChild(feather);
       // Catch-up. buildLit() runs at idle and can land mid-run, after promote()
-      // has already been round the targets — and two of the three targets did
-      // not exist when it did. Deliberately placed after BOTH revealInner and
-      // litWrap are built, and keyed on `promoted` rather than on `ticking`, so
-      // that a clone built inside the post-settle release window is promoted
-      // too and the pending release finds all three and clears them together.
+      // has already been round the targets — and one of the two did not exist
+      // when it did. Deliberately placed after litWrap is built and in the
+      // tree, and keyed on `promoted` rather than on `ticking`, so that a clone
+      // built inside the post-settle release window is promoted too and the
+      // pending release finds both and clears them together.
       if (promoted) applyPromotion();
     }
   }
@@ -1363,11 +1476,27 @@ try { (function () {
     // at ~38 and needed to reach 0.02 to settle; instrumented, it took 30.0s to
     // cross even the 1.5 leave-threshold and never reached 0.02 at all. tick()
     // therefore never entered its settle branch, schedulePromotionRelease() was
-    // never called, and three full-viewport textures stayed promoted for the
+    // never called, and both full-viewport textures stayed promoted for the
     // life of the page. 150ms reproduces the old 0.1-per-frame response at
     // 60fps (1 - e^(-16/150) = 0.10) while behaving identically per unit time at
     // 8ms or at the 50ms clamp, which is the whole point.
     speed.v += (Math.sqrt(dx * dx + dy * dy) / dt * 16 - speed.v) * (1 - Math.exp(-dt / 150));
+    // The orb is written HERE and not in the pointermove handler, even though it
+    // is the one element that takes the raw pointer and needs no damping. Two
+    // reasons, and the second is the real one. A pointer can report faster than
+    // the display presents — on this host the driver measures 43-47 events/s
+    // against 120Hz, but a 1000Hz mouse on a 60Hz panel is the same page — and
+    // every event that is not the last one before a frame writes a position the
+    // compositor never shows. And when frames are long, writing per event makes
+    // the orb publish a stream of positions against a screen that is not
+    // updating, which is precisely the "cursor lies about where it is" the
+    // window rewrite above was made to fix; coalescing means the orb can only
+    // ever claim a position the frame it is drawn in actually had. tx/ty are
+    // already the stored last event, so there is nothing else to keep. The rAF
+    // the handler schedules runs in the SAME frame as the event (see the dt
+    // note above — that is why dt goes negative), so at one event per frame
+    // this is byte-identical to writing it inline.
+    orb.style.transform = 'translate(' + tx + 'px, ' + ty + 'px)';
     torch.style.transform = 'translate(' + cx.toFixed(1) + 'px, ' + cy.toFixed(1) + 'px)';
     // The field is HEAVIER than the torch and gets its own follower. Sharing the
     // torch's 85ms constant meant background and foreground glow were one object
@@ -1385,8 +1514,14 @@ try { (function () {
     var px = ((fx / window.innerWidth - 0.5) * -12).toFixed(1), py = ((fy / window.innerHeight - 0.5) * -8).toFixed(1);
     ghostWrap.style.transform = 'translate(' + px + 'px,' + py + 'px)';
     if (reveal) {
-      reveal.style.transform = 'translate(' + cx.toFixed(1) + 'px, ' + cy.toFixed(1) + 'px)';
-      revealInner.style.transform = 'translate(' + (240 - cx).toFixed(1) + 'px,' + (240 - cy).toFixed(1) + 'px)';
+      // The window does not move — the hole in it does. Everything the clip
+      // excludes is dropped by the compositor against the clone's own layer, so
+      // this is the whole cost of following the cursor with a 21.9 Mpx texture.
+      reveal.style.clipPath = 'circle(240px at ' + cx.toFixed(1) + 'px ' + cy.toFixed(1) + 'px)';
+      // The falloff rides the same centre, as a transform on a 480px quad.
+      feather.style.transform = 'translate(' + cx.toFixed(1) + 'px, ' + cy.toFixed(1) + 'px)';
+      // Parallax only, and the same px/py the ambient copy just took: the clone
+      // is world-fixed to the field, not to the cursor.
       litWrap.style.transform = 'translate(' + px + 'px,' + py + 'px)';
     }
     // fq is the pointer error at which the parallax write changes by less than
@@ -1515,36 +1650,58 @@ try { (function () {
   // webfont today, but licensing NB International would make this load-bearing.
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
 
+  // The orb is the page's cursor everywhere the page owns the cursor, and the
+  // card is the one place it does not: .has-orb main hides the system cursor,
+  // .has-orb .card gives it back, because text wants its I-beam. That left the
+  // card showing TWO pointers — the system one it asked for and the orb still
+  // riding along beside it. So the orb fades out over the card and back in off
+  // it, on the 0.35s transition it already has, and exactly one pointer is
+  // visible everywhere on the page.
+  // Written through one function rather than at each site because there are two
+  // independent reasons for the orb to be hidden — the pointer has left the
+  // window, or it is over the card — and setting opacity directly from either
+  // one lets the other be forgotten on the way back.
+  var onCard = false;
+  function paintOrb() { orb.style.opacity = (shown && !onCard) ? '1' : '0'; }
   window.addEventListener('pointermove', function (e) {
     if (!effectsOn) return;
     tx = e.clientX; ty = e.clientY;
     // cold start ONLY: nothing is on screen yet, so placing the damped point on
     // the pointer is invisible. Never done on re-entry — see hideOrb().
     if (!seen) { seen = true; cx = tx; cy = ty; }
+    // closest(), not a hover flag: pointermove on window reports the deepest
+    // element under the pointer, and the card's own children are what the
+    // pointer is actually over most of the time it is over the card. #orb,
+    // #torch, #reveal and #feather are all pointer-events:none, so none of them
+    // can ever be the target and shadow the card.
+    var over = !!(e.target && e.target.closest && e.target.closest('.card'));
+    if (over !== onCard) { onCard = over; paintOrb(); }
     if (!shown) {
       shown = true;
-      orb.style.opacity = '1';
+      paintOrb();
       torch.style.opacity = '1';
-      if (reveal) reveal.style.opacity = '1';
+      if (reveal) { reveal.style.opacity = '1'; feather.style.opacity = '1'; }
     }
-    orb.style.transform = 'translate(' + tx + 'px, ' + ty + 'px)';
     // promote() also cancels any release still pending from the last settle,
     // which is what stops a release landing on a sweep that has just restarted.
     lastPointerAt = performance.now();
     if (!ticking) { ticking = true; promote(); last = performance.now(); requestAnimationFrame(tick); }
   }, { passive: true });
   // The pointer left the window, or the window lost focus. Fade the WHOLE cursor
-  // system: the torch is a 360px glow and #reveal a 480px colour window, and
-  // leaving those lit with no cursor under them reads as a stuck frame. `seen` is
+  // system: the torch is a 360px glow and the reveal a 480px circle of colour,
+  // and leaving those lit with no cursor under them reads as a stuck frame. The
+  // feather goes with the reveal and never separately — it is the reveal's own
+  // rim, so a frame with one and not the other is a bright hard-edged disc.
+  // `seen` is
   // deliberately NOT reset — resetting it snapped cx/cy onto wherever the pointer
   // came back in, which teleported the torch and the reveal window (~1220px in one
   // frame) and jolted the whole parallax field with them. Leaving cx/cy alone lets
   // the existing 85ms damping ease them back inside the 0.35s opacity fade.
   function hideOrb() {
     shown = false;
-    orb.style.opacity = '0';
+    paintOrb();
     torch.style.opacity = '0';
-    if (reveal) reveal.style.opacity = '0';
+    if (reveal) { reveal.style.opacity = '0'; feather.style.opacity = '0'; }
   }
   // documentElement, not document or window: leave events do not bubble, and on
   // the root element this is the UA's "pointer left the viewport" signal.
