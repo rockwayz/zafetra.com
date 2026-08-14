@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-l/nJM/El7NAoQh3sdit8zSrA51IyicjKT8jkbh7+fyI=' 'sha256-kuMWeAlTEF2fOZbVkICh/G16vlKpNZnBxE08YVU0wTA='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-ncvGAlhIeJc5nYVJnbJVDVuPA+i5kr1augrgzgyt86k='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-l/nJM/El7NAoQh3sdit8zSrA51IyicjKT8jkbh7+fyI=' 'sha256-iMfQWI0H8bL7JslUD7cnL7sNBYoITy4b0bg0Gy+Xue8='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-Oao6mYYUYQth6oYhfg2ZxRdck7dgV45NZMDquigVVzA='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -406,33 +406,29 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
      centred on a letterform is worse than no ring. So below the threshold the
      mark is simply not drawn — and ONLY when the JS never placed it. It is
      aria-hidden, so nothing is lost to assistive tech either way.
-     .mark-locked is set at the END of lockMarkAndEye(), after all three hops
-     measured, so any early return there is treated as "unplaced" too. */
-  html:not(.mark-locked) .logo { display: none; }
-}
-/* AND THE SAME THING HAPPENS WITH JS ON, which the rule above could never
-   catch. It is written `html:not(.mark-locked)`, and lockMarkAndEye() sets
-   .mark-locked unconditionally once it measures — confirmed set at every width
-   down to 220px — so that rule can only ever fire for a no-JS visitor, who is
-   precisely the visitor whose shift is zero and whose mark is therefore already
-   handled. With JS the shift is CAPPED to the room that exists rather than
-   zeroed, and the cap is what breaks the lockup: the mark is anchored to the
-   card's right edge, so every pixel the wordmark fails to slide is a pixel the
-   mark travels into it.
-   Measured on the shipped file, JS on, real viewports — letters of the wordmark
-   the mark's box covers, and the mark's left edge against the final glyph's:
-       220-276px   3 letters    -72.1 .. -44.1px   shift capped to 0.0px
-       300-320px   2 letters    -22.7 ..  -6.1px   shift 9.4 / 19.4px
-       340px+      1 letter      +3.9px and up     shift 29.4px and up
-   One letter IS the design — the mark parks on the final A and tucks into it.
-   Two is the defect. So 340px is the width where the lockup stops working, and
-   below it the mark is not drawn, for the same reason and with the same
-   consequence as the no-JS case above: aria-hidden, so nothing is lost.
-   Deliberately NOT folded into the 380px block. That block's threshold is about
-   the FALLBACK going to zero; this one is about the CAP running out, they are
-   different mechanisms with different widths, and merging them would hide a
-   mark at 360-380px that is sitting correctly on its letter. */
-@media (max-width: 339.98px) {
+     ONE RULE, AND IT IS NOT CONDITIONAL ON JS. It used to read
+     `html:not(.mark-locked) .logo`, which could never fire: lockMarkAndEye()
+     sets .mark-locked unconditionally once it measures — confirmed set at every
+     width down to 220px — so the guard only ever admitted the no-JS visitor,
+     who is precisely the visitor the rule was NOT needed for. With JS the shift
+     is CAPPED to the room that exists rather than zeroed, and the cap is what
+     breaks the lockup: the mark is anchored to the card's right edge, so every
+     pixel the wordmark fails to slide is a pixel the mark travels into it. Same
+     collision, wider band, and invisible to the guard.
+     Measured with JS on, real viewports, as how far the mark's left edge sits
+     INTO the final glyph — the tuck is the lockup, so its depth as a fraction
+     of that glyph's width is the thing that has to hold:
+         300-320px    -59% .. -16%    mark is left of the A, across two letters
+         340px          +10%          on the A but barely
+         360px          +36%
+         375px          +55%
+         380px          +62%
+         390px-1440px   +65%          the value it holds at every desktop width
+     So it is not a cliff, it is a slide, and 380px is where it has effectively
+     arrived. Below that the mark is not drawn — aria-hidden, so nothing is lost
+     to assistive tech, and the wordmark simply stands on its own.
+     380 also happens to be the threshold this block already used for the
+     fallback, which is why there is one rule here and not two. */
   .logo { display: none; }
 }
 @media print {
@@ -1604,9 +1600,35 @@ try { (function () {
     // Taking the h1's rendered left and removing whatever offset is currently
     // applied gives its static position directly: no proxy, and self-correcting
     // on every resize because it subtracts the offset that is live at the time.
+    // Below the narrow-width threshold the stylesheet does not draw the mark at
+    // all, and then BOTH numbers this function writes stop being merely unused
+    // and become actively wrong. The threshold is deliberately not repeated
+    // here — it is read off the mark itself, so the stylesheet stays the single
+    // place it is written and the two cannot drift.
+    //   The shift exists to open a gap for the mark. With no mark there is no
+    //   gap to open, and applying it anyway just pushes the wordmark off centre:
+    //   measured at 320px, ink centre 143.7 against a viewport centre of 160.
+    //   The eye is worse. hop 2 below reads the mark's rect to place the coil's
+    //   eye on it, and a display:none element measures 0x0 at the origin — so
+    //   --eye-dx came out as MINUS the viewport centre (-150.00px at 300px,
+    //   -160.00px at 320px) and dragged the whole field's eye to the left edge.
+    //   Removing the inline property restores the stylesheet's 2.503em, which
+    //   at the floored 44px font-size is 110.13px — the exact value hop 2
+    //   computes at every width where the mark IS drawn. So the fallback is not
+    //   an approximation here, it is the same number.
+    var markHidden = getComputedStyle(logoEl).display === 'none';
     var wantShift = (parseFloat(getComputedStyle(root).getPropertyValue('--word-shift-em')) || 0) * fs;
     var room = Math.max(0, (h1r.left - (parseFloat(cs.left) || 0)) - 8);
-    root.style.setProperty('--word-shift-applied', Math.min(wantShift, room).toFixed(1) + 'px');
+    root.style.setProperty('--word-shift-applied',
+      (markHidden ? 0 : Math.min(wantShift, room)).toFixed(1) + 'px');
+    if (markHidden) {
+      // NOT left as-is: relayout() runs on every resize, so a session that
+      // started wide has a stale px value written and only removing it gets the
+      // fallback back.
+      root.style.removeProperty('--eye-dx');
+      root.classList.add('mark-locked');
+      return;
+    }
     // hop 1: the mark. `right: <inset>` plus translateX(50%) puts its centre
     // exactly <inset> in from the card's right edge, and the card shrink-wraps
     // to the h1 — so this lands the mark square on the glyph.
@@ -1640,11 +1662,15 @@ try { (function () {
     // wrap's undrifted centre.
     var wr = mainEl.getBoundingClientRect();
     root.style.setProperty('--eye-dx', (markCentre - (wr.left + wr.width / 2)).toFixed(2) + 'px');
-    // Reached only when all three hops measured cleanly, so it is the honest
-    // signal for "the mark is where it belongs". The narrow-viewport rule in the
-    // stylesheet hides the mark WITHOUT this class — see it for why. Set last on
-    // purpose: every early return above leaves it unset, and an unplaced mark
-    // should be treated exactly like an unmeasured one.
+    // Set last on purpose: every early return ABOVE the markHidden branch leaves
+    // it unset, and a mark that could not be measured should be treated exactly
+    // like one that was never placed. It means "the placement pass ran to a
+    // decision" — which includes the deliberate decision not to draw the mark,
+    // hence the matching add() in that branch. It no longer gates any CSS: the
+    // narrow-width rule that used to read `html:not(.mark-locked)` is
+    // unconditional now, because this class is always set and that guard could
+    // therefore never fire. Kept because check-lockup asserts on it as the
+    // signal that the page's script actually ran.
     root.classList.add('mark-locked');
   }
   // There is deliberately NO clear zone any more. A mask used to punch an

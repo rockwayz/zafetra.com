@@ -79,9 +79,12 @@ MARK_HIDDEN_BELOW = 380
 
 # With JS the shift is CAPPED rather than zeroed, and the mark is anchored to the
 # card's right edge, so every pixel the wordmark fails to slide is a pixel the
-# mark travels into it. Measured: 3 letters covered at 220-276px, 2 at 300-320px,
-# 1 from 340px up. One letter is the design -- the mark parks on the final A.
-MARK_HIDDEN_BELOW_ANY = 340
+# mark travels into it. Measured as how deep the mark tucks into the final glyph,
+# which is what the lockup IS: -59%..-16% at 300-320px (left of the A entirely),
+# +10% at 340, +36% at 360, +55% at 375, +62% at 380, +65% from 390 to 1440. A
+# slide, not a cliff, and 380 is where it has arrived -- which is also the width
+# the fallback rule already used, so there is one threshold and not two.
+MARK_HIDDEN_BELOW_ANY = 380
 
 
 def die(msg):
@@ -135,6 +138,7 @@ addEventListener('load', function(){ setTimeout(function(){
                 markCovers:covered,
                 mottoLeft:mo?+mo.left.toFixed(1):null, mottoRight:mo?+mo.right.toFixed(1):null,
                 locked:d.documentElement.classList.contains('mark-locked'),
+                eyeDx:win.getComputedStyle(d.documentElement).getPropertyValue('--eye-dx').trim(),
                 fs:win.getComputedStyle(h1).fontSize});
     }catch(e){ out.push({w:+f.dataset.w, error:String(e)}); }
   });
@@ -224,6 +228,16 @@ def main():
                 if r["markShown"] != want:
                     bad.append(f"mark {'shown' if r['markShown'] else 'hidden'} with no JS at "
                                f"{r['w']}px; expected {'shown' if want else 'hidden'}")
+            # Hiding the mark has to take the shift with it: the shift exists to
+            # open a gap for the mark, and applied without one it just pushes the
+            # wordmark off centre. Measured at 320px before this was fixed: ink
+            # centre 143.7 against a viewport centre of 160.
+            if cond == "js-on" and not r["markShown"] and r["applied"] not in (None, "0px", "0.0px"):
+                bad.append(f"mark hidden but --word-shift-applied is {r['applied']} — "
+                           f"the wordmark is shifted to clear a mark that is not drawn")
+            if cond == "js-on" and not r["markShown"] and r.get("eyeDx", "").endswith("px"):
+                bad.append(f"mark hidden but --eye-dx is still an inline px value ({r['eyeDx']}) — "
+                           f"it was measured from a display:none rect")
             # nothing may hang off the right edge either
             if r["markShown"] and r["markRight"] > r["vw"] + 0.5:
                 bad.append(f"mark right {r['markRight']} > {r['vw']}")
@@ -237,6 +251,12 @@ def main():
             # available fixes (let it wrap, or drop the clamp floor) change the
             # composition, so this is an owner call and not a gate -- but it is
             # printed at every width so it cannot go unnoticed again.
+            # with no mark to clear, the wordmark must sit centred
+            if cond == "js-on" and not r["markShown"] and r["w"] >= CONTAINMENT_ASSERTED_FROM:
+                centre = (r["left"] + r["right"]) / 2
+                if abs(centre - r["vw"] / 2) > 1.5:
+                    bad.append(f"mark hidden but wordmark centre {centre:.1f} vs viewport "
+                               f"{r['vw'] / 2:.1f} — off by {centre - r['vw'] / 2:+.1f}px")
             if r.get("mottoLeft") is not None and (r["mottoLeft"] < -0.5 or r["mottoRight"] > r["vw"] + 0.5):
                 note.append(f"motto {r['mottoLeft']}→{r['mottoRight']} overhangs")
             mo = f"  [below the asserted floor: {'; '.join(note)}]" if note and r["w"] < CONTAINMENT_ASSERTED_FROM \
