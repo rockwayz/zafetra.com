@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-9WE98IovckxctDEZW0pZHtSq4jI/9kDndK4EJN8l8j4=' 'sha256-utcSWR9C8zCA8fPz3H45wHTw7VeQl2MQdXJwCObCfM8='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-kicllNjfYEsdVuNfJWqbokz76VRoIpk2rRQfdpV42uY='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-9WE98IovckxctDEZW0pZHtSq4jI/9kDndK4EJN8l8j4=' 'sha256-g3Ihjlam8rdTiF0ki0pT62XvWgYgkIor2D45S5UhAVk='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-kicllNjfYEsdVuNfJWqbokz76VRoIpk2rRQfdpV42uY='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -1564,10 +1564,49 @@ try { (function () {
     // it, silently, on the second run of every visit.
   }
 
+  // The core's texture is claimed in the frame AFTER the first painted one, and
+  // the reason is a metric, not a hitch. Promoting a layer makes Chrome re-record
+  // the text inside it, and re-recording finds a candidate the first pass did not
+  // report: a different <text> in the same layer whose visible area is larger,
+  // 461,788 against 413,348. LCP only ever moves UP, so whenever the claim lands,
+  // a second candidate lands with it and LCP is dragged to that moment.
+  //   claimed in buildLit's idle callback   LCP 1464ms at 1x, 2640ms at 4x
+  //   claimed here, one frame after paint   LCP  640ms at 1x, 1124ms at 4x
+  //   claimed synchronously, before paint   LCP  604ms / 1100ms, but FCP goes
+  //                                         384 -> 604 and 860 -> 1100
+  //   (simondolera, same runs)              LCP  304ms /  588ms
+  // 2640ms is over the 2500ms bar this metric is scored against, so the idle
+  // claim was failing a Core Web Vital on a slow device for a layer whose pixels
+  // had been on screen since first paint. Nothing appears at that moment: between
+  // 1100ms and 1800ms only 5,207 pixels change, 0.4% of the viewport, and that is
+  // the typewriter.
+  // Claiming before paint fixes the metric by making FCP pay for it, which is the
+  // wrong pocket. One frame after is the only slot that leaves FCP alone.
+  // WHAT IT COSTS, measured under the burst-and-pause pointer: the single worst
+  // task of a session grows from 56ms to 99ms and blocking from ~15ms to ~80ms.
+  // Frame p95 (25.5 -> 25.2) and spatial lag p95 (103.1 -> 104.7) do not move, so
+  // this is one frame in a session and not a systematic cost.
+  // NO transform is written to .ghost here. Appending translateZ(0) to the
+  // eye-lock was tried and measured WORSE on the metric being fixed (LCP 1304ms
+  // at 1x against 640ms) while only halving the task; and .ghost's transform is
+  // where the eye-lock lives, so every write to it is a displacement waiting to
+  // happen. There is no reason to hold that hazard for a worse number.
+  function claimCoreAfterFirstPaint() {
+    if (!ambientCore || coreWanted) return;
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        if (!effectsOn || coreWanted) return;
+        coreWanted = true;
+        ambientCore.style.willChange = 'transform';
+        if (promoted) applyPromotion();
+      });
+    });
+  }
   function enableEffects() {
     if (effectsOn) return;
     effectsOn = true;
     document.documentElement.classList.add('has-orb');
+    claimCoreAfterFirstPaint();
     scheduleLitBuild();
   }
   // Building the torch clone is cloneNode(true) over three SVGs — 567 <text>
@@ -1720,7 +1759,6 @@ try { (function () {
       // are the two paths that reach applyPromotion() and the core has to be in
       // promotionTargets() by the time either fires. The catch-up covers a
       // buildLit() that landed mid-run, which promote() would early-return on.
-      coreWanted = true;
       if (promoted) applyPromotion();
 
       // ---- pre-raster ----------------------------------------------------
@@ -1788,6 +1826,12 @@ try { (function () {
     // stranded on two full-viewport layers for the life of the page. The CSS
     // cannot mop this up: an inline style outranks a stylesheet rule.
     releasePromotion();
+    // releasePromotion() returns early when `promoted` was never set, and the core
+    // can now be claimed before it ever is — one frame after paint, where promote()
+    // has not necessarily run. Clear it explicitly or an inline will-change is
+    // stranded on a full-viewport layer for the life of the page, which is the
+    // hazard the comment above is about.
+    if (ambientCore) { ambientCore.style.willChange = ''; coreWanted = false; }
   }
   function applyGates() {
     if (fineQ.matches && !reduceQ.matches && !fcQ.matches) enableEffects(); else disableEffects();
