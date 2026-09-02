@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/vfbsU2jC47gDVwCpG1eYiAC4p6PfE7198u8CFt+Kq4=' 'sha256-utcSWR9C8zCA8fPz3H45wHTw7VeQl2MQdXJwCObCfM8='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-TdV8GaP9njfRxVeo9sbSIhFVvWDctXgFRJX4aeh/FpY='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-9WE98IovckxctDEZW0pZHtSq4jI/9kDndK4EJN8l8j4=' 'sha256-utcSWR9C8zCA8fPz3H45wHTw7VeQl2MQdXJwCObCfM8='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-kicllNjfYEsdVuNfJWqbokz76VRoIpk2rRQfdpV42uY='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -129,7 +129,16 @@
         "Medical device software",
         "ISO 13485"
       ],
-      "description": "Zafetra is an independent AI research and engineering company. Work spans agentic systems, model evaluation, AI governance and regulated software qualification."
+      "description": "Zafetra is an independent AI research and engineering company. Work spans agentic systems, model evaluation, AI governance and regulated software qualification.",
+      "sameAs": [
+        "https://simondolera.com/"
+      ],
+      "founder": {
+        "@type": "Person",
+        "@id": "https://simondolera.com/#person",
+        "name": "Simon Dolera",
+        "url": "https://simondolera.com/"
+      }
     },
     {
       "@type": "WebSite",
@@ -606,6 +615,49 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
    typewriter adds .tw-on to the <p> — i.e. with JS off, blocked, or broken — the
    static sizer IS the tagline, and the permanently-empty live layer and its
    caret stay hidden. Once .tw-on lands they swap. */
+/* The exit. This page had no links and no focusable elements at all, while
+   simon@zafetra.com is the contact address printed on simondolera.com — someone
+   who reads that domain and types it in arrived at a wall. COMING SOON is still
+   the state of this site and still the dominant line; this is the way out from
+   under it, and it is built to look like it always was.
+   Subordinate by construction: one step smaller than the motto, the motto's own
+   --dim, no weight, and it takes --signal only on hover and focus, so at rest
+   nothing on this line competes with the wordmark. It rides the same word-shift
+   transform the motto and tagline ride, so all three hang off the WORD rather
+   than the card, and it carries the motto's three-layer halo for the same reason
+   the motto does: the torch passes under it.
+   NO animation is touched on :focus-visible, and that is the whole trap. A rule
+   like `a:focus-visible { animation: none }` reads as harmless housekeeping, but
+   blurring RE-ADDS the animation as a new one, which restarts a `both`-filled
+   fade from opacity 0 behind its delay — so every link a keyboard user tabs PAST
+   blinks out for the length of that delay. The focus ring is an outline and a
+   colour; the fade below is left alone. */
+.exit { position: absolute; top: 100%; left: 50%; margin: clamp(7.7rem, 19.4vh, 11.6rem) 0 0; transform: translateX(calc(-50% - var(--word-shift-applied, var(--word-shift-fallback)))); display: flex; align-items: center; gap: 0.55rem; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: clamp(0.66rem, 1.05vw, 0.78rem); letter-spacing: 0.1em; white-space: nowrap; color: var(--dim); text-shadow: 0 0 6px rgba(4, 4, 4, 1), 0 0 14px rgba(4, 4, 4, 0.95), 0 0 28px rgba(4, 4, 4, 0.8); animation: fadein 1.4s var(--ease-out) 1.15s both; }
+.exit span { opacity: 0.45; }
+/* Padding, not height: the line is ~14px of type and the target has to clear
+   46px, so 17px top and bottom buys 48 and the negative margin hands it back to
+   the layout, leaving the visual line exactly where the type sits. */
+.exit a { color: inherit; text-decoration: none; padding: 17px 8px; margin: -17px -8px; border-radius: 5px; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: color 0.25s ease; }
+.exit a::after { content: ''; display: block; height: 1px; margin-top: 3px; background: currentColor; opacity: 0.28; transition: opacity 0.25s ease; }
+@media (hover: hover) { .exit a:hover { color: var(--signal); } .exit a:hover::after { opacity: 1; } }
+.exit a:active { color: var(--signal); }
+.exit a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; color: var(--signal); }
+.exit a:focus-visible::after { opacity: 1; }
+@media (forced-colors: active) { .exit a { color: LinkText; } }
+/* Short viewports are where an exit link is most likely to be the thing that
+   gets clipped, and a clipped exit is the dead end coming back. A landscape
+   phone is 375px tall, and at the base offset the line's text ended 7px below
+   the fold there. The base offset cannot simply shrink: the floor exists to
+   clear COMING SOON, whose own gap floors at 6rem, and crowding the two together
+   reads as one block rather than a statement and a footnote.
+   So the gap tightens only where the room runs out, and the tap padding — which
+   is 17px of invisible box above and below — stops being paid for out of the
+   layout at the same time. On a viewport this short the pointer is a finger on a
+   phone held sideways or a mouse in a very short window; the target stays over
+   46px wide and loses height it had spare. */
+@media screen and (max-height: 500px) {
+  .exit { margin-top: clamp(6.9rem, 17vh, 8.8rem); }
+}
 .tw-sizer { visibility: visible; }
 .tw-on .tw-sizer { visibility: hidden; }
 .tw-live { display: none; position: absolute; left: 0; top: 0; white-space: pre; }
@@ -1266,6 +1318,11 @@ h1 { position: relative;
              string every 100ms as the animation types and deletes -->
         <span class="sr-only">Coming soon</span>
       </p>
+      <nav class="exit" aria-label="Elsewhere">
+        <a href="https://simondolera.com/" rel="me">simondolera.com</a>
+        <span aria-hidden="true">&#183;</span>
+        <a href="mailto:simon@zafetra.com">simon@zafetra.com</a>
+      </nav>
     </div>
   </div>
 </main>
