@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/vfbsU2jC47gDVwCpG1eYiAC4p6PfE7198u8CFt+Kq4=' 'sha256-iMfQWI0H8bL7JslUD7cnL7sNBYoITy4b0bg0Gy+Xue8='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-Oao6mYYUYQth6oYhfg2ZxRdck7dgV45NZMDquigVVzA='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/vfbsU2jC47gDVwCpG1eYiAC4p6PfE7198u8CFt+Kq4=' 'sha256-4tpJDUmh1SAKCzYAOCr19ReaEh7LZQaLszuC3GgWPB8='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-H7iURoAFtN04c8871J5+zcOT42enROUjDSKo9WFbHTE='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -302,7 +302,42 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
 /* No will-change here: promotion is handed to JS, which sets it on this element
    AND on the torch clone for the length of a run plus a delay. See the layer
    promotion block in the script. */
-.ghost-wrap { position: absolute; inset: 0; pointer-events: none; -webkit-mask-image: none; mask-image: none; }
+/* overflow:hidden is the single highest-leverage declaration on this page, and
+   it is a PAINT bound, not a layout one — nothing it clips was ever visible.
+   .ghost is sized from --field-floor, which is driven by --eye-dx because the
+   coil's eye is locked to the mark on the wordmark's final A rather than to the
+   viewport centre. An off-centre eye means the field has to be wide enough to
+   cover the viewport from that offset, so at 1440x900 the svg box comes out
+   2340x2340 against a 1440x900 wrap — 5.48 Mpx at dsf1, 21.9 Mpx on a Retina
+   panel, and TWICE over, because the torch clone is a .ghost-wrap too.
+   `main` is already overflow:hidden, so every pixel outside the wrap was
+   clipped for the viewer regardless. It was NOT clipped for the compositor:
+   the wrap carries a JS-set will-change for the length of a run, and a promoted
+   layer is sized to the content it paints, so the texture was the whole 2340px
+   box and the raster bill was charged on all of it. Bounding the wrap makes the
+   texture the viewport and nothing else.
+   Measured on this file, headless, 4x CPU throttle, 1440x900, 8s pointer sweep,
+   against the build it replaces:
+                       first sweep            second sweep (same page)
+                   fps    p95   blocking     fps      p95   blocking
+     before       51.9   18.2      860ms     0.7   1023.6    16428ms
+     after        56.2   18.1      395ms    45.2     18.1     3865ms
+   The second-sweep column is the point. The page did not merely run slow, it
+   DEGRADED: every sweep left more promoted texture to re-raster than the last,
+   and by the second one the main thread was blocked behind raster for 16.4s of
+   an 8s sweep — 0.7fps, which is the "it got worse the longer I used it" this
+   was tracked down from. Pixel diff before/after with the wave frozen and the
+   torch parked: 782 differing pixels of 1,296,000, all of them inside the
+   typewriter's box, which types between the two shots. The field itself is
+   identical to the pixel.
+   The -16px is the parallax margin, and it has to be a real number rather than
+   0: tick() translates this wrap by up to (6px, 4px), and the clip travels WITH
+   the element, so a wrap bounded at inset:0 would drag a bare strip of `main`
+   in at the trailing edge. 16 covers the 6 with room for a subpixel rounding.
+   The box stays centred either way — inset:-16px moves both edges outward, so
+   the centre this element's top:50%/left:50% resolves against does not move,
+   and the eye lock is untouched. */
+.ghost-wrap { position: absolute; inset: -16px; overflow: hidden; pointer-events: none; -webkit-mask-image: none; mask-image: none; }
 /* ambient layer; the lit clone above it is revealed only inside the torch radius
    and is never scrambled — the cursor shows pristine code while the ambient
    copy drifts and mutates */
@@ -1253,6 +1288,12 @@ try { (function () {
   var torch = document.getElementById('torch');
   var orb = document.getElementById('orb');
   var ghostWrap = document.querySelector('.ghost-wrap');
+  // Resolved here, off the AMBIENT wrap specifically: by the time buildLit() has
+  // run there are two .ghost.core elements in the document and a bare
+  // document.querySelector would be a coin flip between them. Scoping to
+  // ghostWrap is the same scoping the wave's own node list uses.
+  var ambientCore = ghostWrap && ghostWrap.querySelector('.ghost.core');
+  var coreWanted = false;   // set at the wave's launch, cleared by the release
   var speed = { v: 0 };
   var lastPointerAt = 0;   // wall clock, for the promotion failsafe below
   var effectsOn = false;
@@ -1303,11 +1344,71 @@ try { (function () {
   // middle of a run, hence the catch-up at the end of buildLit(). These two are
   // the only elements on the page transformed every frame that do not keep a
   // static will-change; #orb, #torch and #feather do keep theirs.
-  var RELEASE_MS = 3000;
+  // 3000 was the right number for a 2340px field and is the wrong one for a
+  // clipped field, because the cost it was buying down moved. The release is
+  // not free: dropping will-change discards both textures, and the next pointer
+  // move has to re-raster them from cold INSIDE the frame that starts the sweep.
+  // Traced at 4x throttle on the clipped build, warm sweep after a 5s pause, the
+  // re-promotion lands as a single 938.9ms task of which 932.9ms is Commit — the
+  // main thread parked in WaitForCommitCompletion behind that raster. Every
+  // pause-then-resume paid it, and pause-then-resume is what looking at a page
+  // IS.
+  // Measured with the release suppressed, 3 interleaved pairs, same page:
+  //          long tasks in the warm sweep      p95      fps
+  //   3000ms   [964,63] [862,60] [854]      18.5-19.1  52.6-53.5
+  //   held        none     none    none     17.9-19.0  60.1-60.3
+  // Holding is what buys the last 7fps and the only long task left on the page.
+  // WHAT MAKES HOLDING AFFORDABLE NOW, and it is not a change of mind about the
+  // memory. The wrap is bounded to the viewport (see .ghost-wrap in the sheet),
+  // so a promoted field layer is 1472x932 CSS = 2944x1864 device on a Retina
+  // panel = 20.9 MB, against 4681x4680 = 83.6 MB before — the figure measured
+  // when this release was written. Two layers: 41.9 MB held, where the old
+  // build held 167.2 MB. The release existed to stop the page sitting on the
+  // larger number; at a quarter of it the trade inverts.
+  // So the timer stops being the primary signal and becomes the backstop. The
+  // real one is the pointer leaving — see hideOrb(), which fires on
+  // pointerleave, pointercancel and window blur, i.e. the three ways
+  // interaction actually ends rather than merely pauses. LEAVE_RELEASE_MS is
+  // short but not zero: a trip to the browser toolbar and back is a leave and a
+  // re-entry, and promote() cancels a pending release, so a return inside the
+  // grace window costs nothing at all.
+  var RELEASE_MS = 15000;
+  var LEAVE_RELEASE_MS = 1500;
   var releaseTimer = null, promoted = false;
   function promotionTargets() {
     var t = [ghostWrap];
     if (litWrap) t.push(litWrap);
+    // The AMBIENT core gets its own texture, and only the ambient one. The wave's
+    // node list is built from `ghostWrap.querySelectorAll('.ghost.core textPath')`
+    // — core only, ambient only — but core, mid and aura share the single
+    // .ghost-wrap layer, so every fragment write was dirtying a region of a
+    // texture that also holds 182 mid and 253 aura fragments, and the raster for
+    // that region had to redraw all three. The wave writes 132 fragments' worth
+    // of change and paid for 567.
+    // This is why the field jank does not follow the write count. Measured under
+    // a burst-and-pause pointer (a hand reading the formulas, not a machine
+    // sweeping): the WORST frame on the shipped build, 249.4ms, contained ZERO
+    // writes — the raster it was blocked behind belonged to a write two frames
+    // earlier. simondolera issues MORE writes over the same run, 996 against 638,
+    // and never exceeds 37ms, because its field is 95 fragments across 2 layers
+    // and its arcs overlap far less.
+    // Measured on this file, 5 bursts of 1600ms at 125Hz with 1400ms pauses:
+    //                          frame p95  worst   EL p95  EL worst  lag p95  blocking
+    //   baseline                   69.2   271.3    42.40    468.78    148.8    2412ms
+    //   ambient core promoted      25.2    68.1    37.94     93.83    100.8       5ms
+    //   core AND clone promoted    25.6    93.5    34.13    157.54    106.0      55ms
+    //   all three layers           32.5    94.2    36.35    199.88    105.1     148ms
+    //   contain:paint on core     100.9   265.3    59.36    483.71    167.3    3316ms
+    // The clone's core is deliberately NOT included: it is never scrambled (that
+    // is the whole point of the clone), so a texture for it buys nothing and the
+    // row above shows it costs. contain:paint is not an alternative — it is worse
+    // than doing nothing, and it is measured here so nobody re-proposes it.
+    // 100.8px of spatial lag is the control's number (104.8px), so this is the
+    // change that puts the torch under the hand rather than behind it.
+    // Gated on coreWanted, which the WAVE sets at its launch — see the note there
+    // for why not the pre-raster and why not the first pointer move. Cleared by
+    // releasePromotion() after it has swept this list.
+    if (ambientCore && coreWanted) t.push(ambientCore);
     return t;
   }
   // Separate from promote() on purpose: the catch-up in buildLit() has to be able
@@ -1315,6 +1416,32 @@ try { (function () {
   // Routing it through promote() would cancel a legitimately pending release.
   function applyPromotion() {
     promotionTargets().forEach(function (el) { el.style.willChange = 'transform'; });
+    // The two wraps are transformed every frame by tick(), so they always have a
+    // transform for the compositor to raster against. The core does not — the
+    // parallax lives on the wrap above it — so a bare will-change leaves it as a
+    // texture request with nothing to rasterise, and the work lands later and
+    // more expensively. Same lesson as the pre-raster in buildLit(), same fix.
+    // Measured under the burst-and-pause pointer, promotion landing at the
+    // wave's launch:
+    //   will-change only            worst 600-650ms  blocking 727-866ms  3 long tasks
+    //   will-change + translateZ(0) see the table in the handover
+    // NO transform is written to the core, and the reason is worth keeping.
+    // An earlier build set `ambientCore.style.transform = 'translateZ(0)'` here
+    // to give the compositor something to raster against, the same trick the
+    // pre-raster uses on the wraps. It is wrong on this element: .ghost carries
+    // the eye-lock in its own transform — translate(calc(-50% + var(--eye-dx)),
+    // -50%) — and an assignment REPLACES it, so the core layer jumped by half its
+    // 2340px box plus the eye offset. Measured: 201,372 pixels of difference
+    // across the whole viewport at max channel delta 26. It hid because the core
+    // is not claimed until the wave launches, so the untouched-render check never
+    // entered the state that had the bug.
+    // Written correctly — appending translateZ(0) to the eye-lock rather than
+    // replacing it — the nudge then measured NO better than a bare will-change:
+    // worst 653-667ms against 600-650ms, inside the noise. The 249ms this used to
+    // report was the displaced layer having less on-screen content to raster, not
+    // a real saving. So the nudge buys nothing here and costs a 3D rendering
+    // context on the layer; the wraps keep theirs because they are transformed
+    // every frame anyway and it demonstrably helps there.
   }
   function promote() {
     if (releaseTimer) { clearTimeout(releaseTimer); releaseTimer = null; }
@@ -1322,15 +1449,38 @@ try { (function () {
     promoted = true;
     applyPromotion();
   }
-  function schedulePromotionRelease() {
+  // NEVER pushes a pending release later, and that is the whole point of the
+  // deadline rather than a bare setTimeout. Two callers now schedule, on two
+  // different horizons, and they arrive in the wrong order: hideOrb() arms the
+  // short LEAVE window the moment the pointer is gone, and tick() is still
+  // damping the torch to a stop behind it, so tick()'s settle branch runs a few
+  // hundred ms LATER and asked for the long one. Last-writer-wins meant the
+  // leave release was overwritten by the idle release every single time — the
+  // pointer left, and the textures were held for 15s anyway. Caught by the
+  // pointerleave check in the verification pass, which is the only reason this
+  // is a deadline and not a bug in the shipped file.
+  // Soonest wins: whichever signal wants the textures back earliest gets them.
+  var releaseAt = 0;
+  function schedulePromotionRelease(ms) {
+    var at = performance.now() + (ms === undefined ? RELEASE_MS : ms);
+    if (releaseTimer && at >= releaseAt) return;   // something sooner is already armed
     if (releaseTimer) clearTimeout(releaseTimer);
-    releaseTimer = setTimeout(releasePromotion, RELEASE_MS);
+    releaseAt = at;
+    releaseTimer = setTimeout(releasePromotion, Math.max(0, at - performance.now()));
   }
   function releasePromotion() {
     if (releaseTimer) { clearTimeout(releaseTimer); releaseTimer = null; }
     if (!promoted) return;
     promoted = false;
     promotionTargets().forEach(function (el) { el.style.willChange = ''; });
+    if (ambientCore) ambientCore.style.transform = '';   // the raster nudge goes back too
+    // AFTER the sweep over the targets, never before it: promotionTargets() only
+    // reports the core while this is set, so clearing it first would strand an
+    // inline will-change on the core that nothing in the page could reach again.
+    // Safe to clear here because the WAVE sets it, and the wave launches again on
+    // the next settle — unlike buildLit(), which is idempotent on `lit` and runs
+    // once per page.
+    coreWanted = false;
   }
 
   function enableEffects() {
@@ -1468,6 +1618,60 @@ try { (function () {
       // built inside the post-settle release window is promoted too and the
       // pending release finds both and clears them together.
       if (promoted) applyPromotion();
+
+      // ---- pre-raster ----------------------------------------------------
+      // Both field layers are rastered LAZILY, and the bill for that first
+      // raster was landing on the user's first pointer move — the single frame
+      // where it is least affordable and most visible, because it is the frame
+      // the torch is supposed to come alive in. Traced at 4x throttle, first
+      // sweep of a fresh load: two tasks, 498ms and 989ms, the second of which
+      // is #reveal. Attributed by elimination — with #reveal display:none the
+      // 989ms task does not occur, and hiding #torch or #feather instead leaves
+      // it exactly where it was.
+      // #reveal is opacity:0 until the pointer arrives, and a fully transparent
+      // subtree is not painted at all, so nothing about it is rastered until
+      // the opacity transition runs. Promotion alone does NOT bring that
+      // forward — measured, will-change on its own moved neither task — because
+      // a standing texture request is not a reason to paint something invisible.
+      // What does bring it forward is making it paintable and giving the
+      // compositor an actual transform to raster against:
+      //   as-is                                  LT=[498,989,96,60,60] blk=1453 fps=47.9
+      //   opacity 0.001 alone                    LT=[528,1021,93,162]  blk=1604 fps=47.0
+      //   opacity 0.001 + will-change + nudge    LT=[85]               blk=  35 fps=59.3
+      // 0.001 rather than 0 because zero is the special case that skips paint;
+      // one part in a thousand of a layer that is already the faintest thing on
+      // the page, behind a 240px clip parked at its default position, is not a
+      // visible state. The pointer handler overwrites it with 1 on the first
+      // move, so it is also not a lasting one.
+      // The nudge is translateZ(0) and not a 2D offset for the same class of
+      // reason an identity translate is no good: the compositor needs something
+      // to raster against, and translate(0px,0px) is not it. Measured on the
+      // pre-fix file with everything else held equal, first sweep:
+      //   no nudge                  LT=[522,891,53]  blk=1316  fps=49.3
+      //   translate(0.01px,0.01px)  LT=[81]          blk=  31  fps=59.1
+      //   translate3d(0,0,0)        LT=[78]          blk=  28  fps=59.4
+      //   translateZ(0)             LT=[76]          blk=  26  fps=59.4
+      //   translate(0px,0px)        LT=[78,71,79]    blk=  78  fps=58.6
+      // The sub-pixel offsets work as well as translateZ, and they cost a
+      // whole-field antialiasing change to buy it — 0.01px is still a shift,
+      // and every glyph in the field resamples across it. Diffed against the
+      // old build with the pointer never moved, the 0.01px version differed on
+      // 7,338 pixels at delta<=8; translateZ(0) has no offset to resample.
+      // tick() overwrites this with the real parallax on the first move.
+      // Guarded on `shown`, because buildLit() runs at idle and idle can land
+      // in the middle of a run that has ALREADY set this layer to opacity 1 —
+      // pre-warming over the top of that would be a visible flicker, not a
+      // saving.
+      if (!shown) reveal.style.opacity = '0.001';
+      var wasPromoted = promoted;
+      promote();
+      ghostWrap.style.transform = 'translateZ(0)';
+      litWrap.style.transform = 'translateZ(0)';
+      // If this promote() was ours rather than a live run's, hand the textures
+      // back on the normal timer: a visitor who never moves the pointer should
+      // not be left holding two full-viewport layers for the life of the page.
+      // A first pointer move calls promote(), which cancels this.
+      if (!wasPromoted) schedulePromotionRelease();
     }
   }
   function disableEffects() {
@@ -1780,6 +1984,13 @@ try { (function () {
     paintOrb();
     torch.style.opacity = '0';
     if (reveal) { reveal.style.opacity = '0'; feather.style.opacity = '0'; }
+    // The pointer is gone — left the viewport, was taken over by the UA, or the
+    // window lost focus. That is the honest end of a run, and it is a better
+    // release signal than stillness ever was: a still pointer is usually about
+    // to move again, an absent one is not. Short grace rather than immediate,
+    // because a trip to the toolbar and back reads as leave-then-enter and
+    // promote() cancels this the moment it returns.
+    if (promoted) schedulePromotionRelease(LEAVE_RELEASE_MS);
   }
   // documentElement, not document or window: leave events do not bubble, and on
   // the root element this is the UA's "pointer left the viewport" signal.
@@ -1937,7 +2148,26 @@ try { (function () {
     // and behaves exactly as before.
     if (newMode !== mode) {
       mode = newMode;
-      if (mode === 'idle' && wavePos < 0) { wavePos = 0; lastNow = now; }
+      // WHERE THE CORE'S TEXTURE IS CLAIMED, and why it is here and not earlier.
+      // Promoting a layer rasters it and that raster has to land in some frame.
+      // Three candidate moments, measured under a burst-and-pause pointer:
+      //   first pointer move        fps 51.9   worst 313.9   blocking 964ms
+      //   the wave's launch (here)  p95 ~20    worst  ~68    blocking ~25ms
+      //   buildLit()'s pre-raster   p95 ~20    worst  ~68    blocking ~25ms
+      // The last two are the same speed, so the tie is broken on pixels, and the
+      // pre-raster loses badly. Compositing this layer separately drops it off
+      // the LCD-subpixel antialiasing path, and every glyph in it shifts by one
+      // channel step: isolated on a single page, promoting the core changes
+      // 69,342 pixels at max channel delta 6. Doing that in the pre-raster puts
+      // all 69,342 into the render of a page NOBODY HAS TOUCHED. Doing it here
+      // costs the same pixels but only once a hand has moved, settled, and
+      // started the field glitching — a state the untouched render never enters.
+      // So the first pointer move is ruled out on speed, and the pre-raster on
+      // pixels, and the wave's launch is the only moment that is cheap on both.
+      if (mode === 'idle' && wavePos < 0) {
+        wavePos = 0; lastNow = now;
+        if (!coreWanted) { coreWanted = true; if (promoted) applyPromotion(); }
+      }
       if (mode === 'spin' && wavePos >= 0) {
         wavePos = -1; // drag resumed — stop writing and heal what is dirty
         nodes.forEach(function (n) { if (n.dirty) startResolve(n); });
