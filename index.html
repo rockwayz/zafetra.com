@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/vfbsU2jC47gDVwCpG1eYiAC4p6PfE7198u8CFt+Kq4=' 'sha256-4tpJDUmh1SAKCzYAOCr19ReaEh7LZQaLszuC3GgWPB8='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-H7iURoAFtN04c8871J5+zcOT42enROUjDSKo9WFbHTE='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/vfbsU2jC47gDVwCpG1eYiAC4p6PfE7198u8CFt+Kq4=' 'sha256-utcSWR9C8zCA8fPz3H45wHTw7VeQl2MQdXJwCObCfM8='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-H7iURoAFtN04c8871J5+zcOT42enROUjDSKo9WFbHTE='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -1293,7 +1293,7 @@ try { (function () {
   // document.querySelector would be a coin flip between them. Scoping to
   // ghostWrap is the same scoping the wave's own node list uses.
   var ambientCore = ghostWrap && ghostWrap.querySelector('.ghost.core');
-  var coreWanted = false;   // set at the wave's launch, cleared by the release
+  var coreWanted = false;   // set once by buildLit()'s pre-raster; never cleared
   var speed = { v: 0 };
   var lastPointerAt = 0;   // wall clock, for the promotion failsafe below
   var effectsOn = false;
@@ -1405,9 +1405,11 @@ try { (function () {
     // than doing nothing, and it is measured here so nobody re-proposes it.
     // 100.8px of spatial lag is the control's number (104.8px), so this is the
     // change that puts the torch under the hand rather than behind it.
-    // Gated on coreWanted, which the WAVE sets at its launch — see the note there
-    // for why not the pre-raster and why not the first pointer move. Cleared by
-    // releasePromotion() after it has swept this list.
+    // Gated on coreWanted, which buildLit()'s pre-raster sets — see the note there
+    // for the numbers that ruled out the wave's launch and the first pointer move.
+    // Never cleared; see releasePromotion(). False only in the window between
+    // parse and that idle callback, which is real: applyGates() runs at parse and
+    // a pointer move can reach promote() before buildLit() has fired.
     if (ambientCore && coreWanted) t.push(ambientCore);
     return t;
   }
@@ -1473,14 +1475,16 @@ try { (function () {
     if (!promoted) return;
     promoted = false;
     promotionTargets().forEach(function (el) { el.style.willChange = ''; });
-    if (ambientCore) ambientCore.style.transform = '';   // the raster nudge goes back too
     // AFTER the sweep over the targets, never before it: promotionTargets() only
-    // reports the core while this is set, so clearing it first would strand an
-    // inline will-change on the core that nothing in the page could reach again.
-    // Safe to clear here because the WAVE sets it, and the wave launches again on
-    // the next settle — unlike buildLit(), which is idempotent on `lit` and runs
-    // once per page.
-    coreWanted = false;
+    // reports the core while this is set, so clearing it would strand an inline
+    // will-change on the core that nothing in the page could reach again.
+    // coreWanted is therefore NOT cleared, and that is a consequence of moving the
+    // claim into buildLit(): it now means "the pre-raster has run", a fact about
+    // the page, where it used to mean "the wave is running", a fact about the
+    // pointer. buildLit() is idempotent on `lit` and never runs twice, so a flag
+    // cleared here could never be set again — the core would fall back into the
+    // wrap's texture for the rest of the session and take the wave's cost with
+    // it, silently, on the second run of every visit.
   }
 
   function enableEffects() {
@@ -1617,6 +1621,29 @@ try { (function () {
       // tree, and keyed on `promoted` rather than on `ticking`, so that a clone
       // built inside the post-settle release window is promoted too and the
       // pending release finds both and clears them together.
+      // The ambient core is claimed HERE, with the wraps, and the reason is the
+      // same reason the wraps are pre-rastered: promoting a layer rasters it, and
+      // buildLit()'s idle callback is the only moment on this page where that
+      // raster contends with nothing. Measured N=3 interleaved against the
+      // control, burst-and-pause pointer at 125Hz:
+      //                        blocking  LT>50  maxLT  frame p95  frame worst
+      //   claimed at the wave      585ms      3  619ms      29.4       634.6
+      //   claimed here              26ms      3   68ms      25.9        71.6
+      //   here, and mid+aura too    46ms      5   76ms      28.9        83.6
+      //   (control, same runs)       0ms      0    0ms      27.1        36.0
+      // The wave's launch looked like the right moment because the wave is the
+      // only writer into this layer, and it is not: the launch fires when the
+      // pointer settles and the first junkNode() write is microseconds behind it,
+      // so the raster and the wave's opening writes land in the same frame — the
+      // frame the field visibly starts glitching in. 619ms, once per session.
+      // mid+aura are NOT claimed. Two more full-viewport textures measured WORSE
+      // than one on every column above, not merely not-better, so the extra
+      // 41.8MB at dsf2 buys a regression.
+      // Set before the catch-up and before promote() further down, because those
+      // are the two paths that reach applyPromotion() and the core has to be in
+      // promotionTargets() by the time either fires. The catch-up covers a
+      // buildLit() that landed mid-run, which promote() would early-return on.
+      coreWanted = true;
       if (promoted) applyPromotion();
 
       // ---- pre-raster ----------------------------------------------------
@@ -2164,10 +2191,7 @@ try { (function () {
       // started the field glitching — a state the untouched render never enters.
       // So the first pointer move is ruled out on speed, and the pre-raster on
       // pixels, and the wave's launch is the only moment that is cheap on both.
-      if (mode === 'idle' && wavePos < 0) {
-        wavePos = 0; lastNow = now;
-        if (!coreWanted) { coreWanted = true; if (promoted) applyPromotion(); }
-      }
+      if (mode === 'idle' && wavePos < 0) { wavePos = 0; lastNow = now; }
       if (mode === 'spin' && wavePos >= 0) {
         wavePos = -1; // drag resumed — stop writing and heal what is dirty
         nodes.forEach(function (n) { if (n.dirty) startResolve(n); });
