@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/vfbsU2jC47gDVwCpG1eYiAC4p6PfE7198u8CFt+Kq4=' 'sha256-utcSWR9C8zCA8fPz3H45wHTw7VeQl2MQdXJwCObCfM8='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-H7iURoAFtN04c8871J5+zcOT42enROUjDSKo9WFbHTE='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/vfbsU2jC47gDVwCpG1eYiAC4p6PfE7198u8CFt+Kq4=' 'sha256-utcSWR9C8zCA8fPz3H45wHTw7VeQl2MQdXJwCObCfM8='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-TdV8GaP9njfRxVeo9sbSIhFVvWDctXgFRJX4aeh/FpY='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -429,7 +429,27 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
    its final opacity on first frame. The static opacity cascade reproduces the
    exact steady state the old ghostin/litin fills settled into — including the
    clone mid/aura layers resolving to ambient opacity via .ghost.mid's higher
-   specificity, which the current look was tuned against. */
+   specificity, which the current look was tuned against.
+
+   DEFERRING mid+aura TO A POST-PAINT FRAME WAS TESTED AGAINST THIS RULING AND
+   REJECTED, 2026-09-02. The argument for it is real and the prize is large: 435
+   of the field's 567 fragments live in those two layers, they are the bulk of
+   the pre-FCP text-on-path layout, and holding them back to the frame after
+   first paint measures
+       FCP  376ms -> 132ms at 1x, and 872ms -> 316ms at 4x
+   which on both would beat the control (212ms / 488ms) rather than trail it.
+   And it is NOT a fade: the layers arrive at full opacity, one frame later.
+   The objection is that "not a fade" is not the same as "not an entrance", and
+   that is empirical. Measured: the deferred first-paint state is on screen for
+   90ms at 1x and 187ms at 4x, and it differs from the finished field on 173,199
+   pixels — 13.4% of the viewport, mean channel delta 7.9, with 34,001 of those
+   at delta >= 13. That is not antialiasing, it is 435 absent glyphs. Put the two
+   states side by side and they do not read as the same picture a frame apart:
+   the full field is a dense multi-scale texture, the core alone is a scatter of
+   large formulas on black. The fill-in is the entrance this ruling exists to
+   forbid, arriving by a different route.
+   So the ruling stands, and the cost of it is now written down: this page pays
+   ~240ms of FCP at 1x for a field that is whole in the first frame. */
 /* The coarse-pointer will-change reset that used to live here is GONE, and
    deliberately not replaced. It existed because .ghost-wrap carried a static
    will-change that a touch device could never use; now nothing declares one.
