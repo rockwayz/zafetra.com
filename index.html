@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-9WE98IovckxctDEZW0pZHtSq4jI/9kDndK4EJN8l8j4=' 'sha256-g3Ihjlam8rdTiF0ki0pT62XvWgYgkIor2D45S5UhAVk='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-TdV8GaP9njfRxVeo9sbSIhFVvWDctXgFRJX4aeh/FpY='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-9WE98IovckxctDEZW0pZHtSq4jI/9kDndK4EJN8l8j4=' 'sha256-9Ack/UYFQ5UfZ3uki5J3zIpJSWTZSM/T/eqiKcXL898='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-M27JIj27CT1IUDmtP831H//8g3AikcxAxUy9zaLInOA='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -522,6 +522,16 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
      fallback, which is why there is one rule here and not two. */
   .logo { display: none; }
 }
+/* The motto is wider than the word at phone widths, so riding the word's full
+   shift walks it off the left edge. With JS the shift is capped per render (see
+   --line-shift-applied in lockMarkAndEye); these are the no-JS floors. Centred
+   on the card instead of the word below 480px, and allowed to wrap where even
+   that cannot fit (Galaxy Fold cover, 280px). JS writes an inline value on the
+   root, which outranks this rule, so the capped value still wins when it runs. */
+@media (max-width: 479px) { :root { --line-shift-applied: 0px; } }
+@media (max-width: 330px) {
+  .motto { white-space: normal; width: calc(100vw - 32px); text-wrap: balance; text-align: center; }
+}
 @media print {
   .ghost-wrap, #orb, #torch, #reveal, #feather, body::after { display: none !important; }
   html, body { background: #fff; }
@@ -573,7 +583,7 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
 .motto { position: absolute; top: 100%; left: 50%; margin: 0.55rem 0 0;
   /* centred under the WORD, not the card: same ride-the-shift transform as the
      tagline, and the same shared no-JS fallback, for the same reason it does. */
-  transform: translateX(calc(-50% - var(--word-shift-applied, var(--word-shift-fallback))));
+  transform: translateX(calc(-50% - var(--line-shift-applied, var(--word-shift-applied, var(--word-shift-fallback)))));
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: clamp(0.72rem, 1.6vw, 0.95rem);
   letter-spacing: 0.02em; color: var(--dim); white-space: nowrap;
@@ -596,7 +606,7 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
      --word-shift-fallback instead of each restating the clamp: matching is
      structural, so the three cannot drift apart again, and the narrow-viewport
      override that zeroes it moves all three together by construction. */
-  transform: translateX(calc(-50% - var(--word-shift-applied, var(--word-shift-fallback))));
+  transform: translateX(calc(-50% - var(--line-shift-applied, var(--word-shift-applied, var(--word-shift-fallback)))));
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   /* floor raised from 0.6rem: at phone widths the vw term is far below the floor,
      so the floor IS the mobile size, and 0.6rem rendered too faint to read. */
@@ -1950,8 +1960,20 @@ try { (function () {
     var markHidden = getComputedStyle(logoEl).display === 'none';
     var wantShift = (parseFloat(getComputedStyle(root).getPropertyValue('--word-shift-em')) || 0) * fs;
     var room = Math.max(0, (h1r.left - (parseFloat(cs.left) || 0)) - 8);
-    root.style.setProperty('--word-shift-applied',
-      (markHidden ? 0 : Math.min(wantShift, room)).toFixed(1) + 'px');
+    var applied = markHidden ? 0 : Math.min(wantShift, room);
+    root.style.setProperty('--word-shift-applied', applied.toFixed(1) + 'px');
+    // The motto and tagline ride the same shift to sit under the WORD, but the
+    // motto is wider than the word at phone widths, so the full shift pushed its
+    // left edge off screen: measured -5px at 381px and 0px at 390px, i.e. the
+    // first letter clipped on the most common iPhone widths. Cap their shift to
+    // keep a 16px gutter. Width via offsetWidth, which ignores the transform, so
+    // the reading cannot feed back on itself. Where it fits, the cap is inert.
+    var cardEl = h1el.parentNode, mottoEl = document.querySelector('.motto');
+    if (cardEl && mottoEl) {
+      var cr = cardEl.getBoundingClientRect();
+      var lineRoom = cr.left + cr.width / 2 - mottoEl.offsetWidth / 2 - 16;
+      root.style.setProperty('--line-shift-applied', Math.max(0, Math.min(applied, lineRoom)).toFixed(1) + 'px');
+    }
     if (markHidden) {
       // NOT left as-is: relayout() runs on every resize, so a session that
       // started wide has a stale px value written and only removing it gets the
