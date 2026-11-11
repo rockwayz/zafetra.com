@@ -86,7 +86,10 @@
      files are generated from it by tools/make-icons.py, which asserts its
      geometry against that data: URI so the two cannot drift apart.
      /favicon.ico (16 + 32) needs no declaration — it is found by convention. -->
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/x-icon" sizes="16x16 32x32" href="/favicon.ico?v=2">
+<!-- ?v=2 since the November 2026 mark: iOS Safari ignores SVG favicons and caches
+     these files hard, so the query string forces a fresh fetch. -->
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
 <!-- Structured data. Deliberately minimal: only facts already on this page —
      name, url, the mark, and the meta description above, copied verbatim. No
      founder, address, founding date, sameAs or contact point, because none of
