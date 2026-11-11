@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-3U1jwu1Syc3MIkbDb8TOta7DCTDM+Cw/WytEdglLOcU=' 'sha256-9Ack/UYFQ5UfZ3uki5J3zIpJSWTZSM/T/eqiKcXL898='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-6np7HGW/Flk1LKby62T2M9po5A7wSAFJ46aWGLGfF3Q='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-3U1jwu1Syc3MIkbDb8TOta7DCTDM+Cw/WytEdglLOcU=' 'sha256-iIs6O0u+Leziulkvd8cxxeoMhMKDoJrdZajwR6C99QI='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-NCWEJwwK9S/CGw16YqYVYa8XrrUTz+f7V5iYAA66Z4o='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -90,11 +90,11 @@
 <!-- ?v=2 since the November 2026 mark: iOS Safari ignores SVG favicons and caches
      these files hard, so the query string forces a fresh fetch. -->
 <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
-<!-- Structured data. Deliberately minimal: only facts already on this page —
-     name, url, the mark, and the meta description above, copied verbatim. No
-     founder, address, founding date, sameAs or contact point, because none of
-     those are established anywhere and structured data is not the place to
-     invent them. NOTE: this block is governed by script-src — see the CSP
+<!-- Structured data. Deliberately minimal: name, url, the mark, the meta
+     description above copied verbatim, and since 0b7afa5 the founder and one
+     sameAs edge, both pointing at simondolera.com. No address, founding date
+     or contact point, because none of those are established anywhere and
+     structured data is not the place to invent them. NOTE: this block is governed by script-src — see the CSP
      comment at the top before switching that directive to hashes. -->
 <script type="application/ld+json">
 {
@@ -197,6 +197,23 @@
   --ink: #040404; --paper: #F8F4F0; --signal: #EA7E23; --dim: #A8A199;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-swift: cubic-bezier(0.22, 1, 0.36, 1);
+  /* THE WORDMARK'S SIZE, defined once and read by the h1, the mark, the field
+     and the no-JS shift fallback. It was the literal clamp(2.75rem, 11vw, 7rem)
+     restated at all four, and it had no height term — which was correct while
+     the mark was parked on the final A, because the lockup was then one line
+     tall. The stacked mark (November 2026) stands 1.6em ABOVE the word, and the
+     card is centred on the word alone, so the mark's top edge sits at
+     50vh - 2.1em: with the size driven by width only, any viewport wider than
+     it is tall runs the mark off the top. Measured on the file this replaces,
+     as the mark box's top in px (negative = cut by main's overflow:hidden):
+         844x390   0     915x412  -5     1024x360  -55
+         1280x400 -35    1600x420 -25    740x360   +9
+     i.e. every phone in landscape, and any short desktop window. 23vh is the
+     largest height term that keeps that edge on screen: 50 - 2.1*23 = 1.7vh
+     of clearance to the box, plus the 0.27em the ring's ink sits inside it.
+     It only ever binds below 487px of height (23vh < 7rem), so every portrait
+     phone and every ordinary desktop window resolves exactly as before. */
+  --word-size: clamp(2.75rem, min(11vw, 23vh), 7rem);
   --serif: Georgia, 'Iowan Old Style', 'Times New Roman', Times, serif;
   /* the wordmark face: a Didone, chased after the A24 logo — extreme thick/thin
      contrast, hairline thins, flat unbracketed serifs. NOT the grotesque A24
@@ -214,6 +231,20 @@
      Roman 2.3089em. Pick one and the rest drift, so JS measures per render. */
   --ink-inset: 0.5105em;
   --eye-dx: 0em;   /* stacked lockup (Nov 2026): the mark is on the centre line */
+  /* ...and ABOVE the word, which the eye lock never followed. .ghost was centred
+     at top:50% with only a horizontal offset, because the old ring sat on the
+     wordmark's own centre line and there was nothing vertical to follow. When
+     the mark was stacked it rose 1.3em and the eye stayed where it was — dead
+     centre of the viewport, behind the wordmark's middle letter. Measured at
+     1440x900 on that build: mark centre y=304, coil eye y=450. So the hollow at
+     the centre of the spiral, which the original logo existed to sit in, was
+     left open behind the word, and the first turn of the coil ran straight
+     through the new mark's ring instead of around it.
+     -1.3em is exact, not tuned: the card is centred on the h1's line box (1em,
+     line-height 1), and the mark hangs off the card's top edge at 1.6em tall,
+     so its centre is 0.5em + 0.8em above the card's. lockMarkAndEye() rewrites
+     this in px from the same two boxes; this value is the no-JS render. */
+  --eye-dy: -1.3em;
   /* how far left the wordmark slides out from under the mark, in h1 em. applied
      as `left` on the h1 — RELATIVE offset, not a transform, for two reasons: it
      does not disturb layout, so the card keeps shrink-wrapping the unshifted
@@ -234,12 +265,14 @@
      128.8px desync recorded in the .tagline comment below. One definition makes
      lockstep structural instead of a rule someone has to remember.
      `1em * --word-shift-em` at the h1 and this clamp are the same number,
-     because the h1's font-size IS this clamp. */
-  --word-shift-fallback: calc(clamp(2.75rem, 11vw, 7rem) * var(--word-shift-em));
+     because the h1's font-size IS --word-size. */
+  --word-shift-fallback: calc(var(--word-size) * var(--word-shift-em));
   /* coverage floor for the fragment field. the field is centred on the MARK,
      not on the viewport, so it sits --eye-dx to the right of centre and has to
      span half the width PLUS that shift again to still reach the left edge —
-     hence 100vw + 2×--eye-dx. the box is square, so 100vh covers the vertical.
+     hence 100vw + 2×--eye-dx. the box is square, and the eye now sits --eye-dy
+     above centre as well, so the vertical needs the same doubling: 100vh less
+     2×--eye-dy, which is negative, so that is 100vh PLUS 2.6em.
      without this the ground shows through at short, wide aspects: at 1600×420
      the field ran x 516..1608 and left 516px of bare #040404 down the left.
      the +16/+12 are the parallax plus slack: it drifts the wrap ±6px across and
@@ -248,7 +281,7 @@
      open that much bare ground at full drift. the extra 2px per side absorbs
      rounding: --eye-dx is written to 2dp, and at 1600×420 an exactly-tight
      floor undershot the left edge by 0.0001px at full drift. */
-  --field-floor: max(calc(100vw + 2 * var(--eye-dx) + 16px), calc(100vh + 12px));
+  --field-floor: max(calc(100vw + 2 * var(--eye-dx) + 16px), calc(100vh - 2 * var(--eye-dy) + 12px));
   /* the field's three depth layers, and the torch clone. each of these literals
      used to appear TWICE — once on the rule, once as the `to` of its entrance
      keyframe — so tuning one by hand drifted the pair apart and the field would
@@ -283,6 +316,35 @@
   --torch-opacity-boost: 2.1;
 }
 @supports (color: color(display-p3 1 0 0)) { :root { --signal: color(display-p3 0.93 0.52 0.17); } }
+/* main is min-height:100svh, so the height term has to be svh too: on iOS in
+   landscape with the toolbar showing, vh is the TALLER viewport and a size
+   derived from it overshoots the one actually on screen. A custom property
+   cannot use the declare-twice fallback main uses — an unknown unit in a
+   custom property is not a parse error — hence @supports. */
+@supports (height: 1svh) { :root { --word-size: clamp(2.75rem, min(11vw, 23svh), 7rem); } }
+/* THE FIELD IS A DISC, AND --field-floor ABOVE SIZES IT AS IF IT WERE A SQUARE.
+   The two terms there make the svg BOX reach each edge of the viewport. But the
+   coil only fills the circle inscribed in that box — measured, its outermost
+   turn is 248 of the 250 user units from the eye to the box edge — so a box
+   that just reaches the edges leaves all four corners bare. With the eye on
+   the centre line that hid at most sizes, because min(260vh, 190vw) oversizes
+   the box anyway; with the eye 1.3em above centre the bottom corners are
+   further away and it does not. Distance from the eye to the far corner against
+   the coil's radius, in px, eye raised, floor as above:
+       1280x551   766 vs 710   bare        1600x420  884 vs 801   bare
+       2560x1440 1545 vs 1277  bare        1440x900  934 vs 1160  covered
+   (2560x1440 was already bare before the eye moved: 1469 vs 1277.)
+   The honest requirement is the corner, so the floor becomes the diagonal:
+   2 x hypot(half-width + |eye-dx|, half-height + |eye-dy|), scaled by 250/248
+   for the coil's inset and rounded up to 2.02. It dominates both square terms,
+   so it replaces them rather than joining them, and the same +16px covers the
+   parallax. It binds only where a corner was bare — at 1440x900 and on a
+   portrait phone the box is unchanged to the pixel. In @supports because an
+   unsupported function in a custom property is not a parse error: without the
+   guard an engine that lacks hypot() would lose .ghost's width altogether. */
+@supports (width: hypot(1px, 1px)) {
+  :root { --field-floor: calc(2.02 * hypot(50vw + max(var(--eye-dx), -1 * var(--eye-dx)), 50vh + max(var(--eye-dy), -1 * var(--eye-dy))) + 16px); }
+}
 * { box-sizing: border-box; }
 html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 html, body { margin: 0; padding: 0; background: var(--ink); color-scheme: dark; }
@@ -355,8 +417,8 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
      the offset is independent of .ghost's own width (it cancels out of the
      -50%), so no vh/vw term survives and the lock holds at every aspect.
      font-size below makes 1em == one h1 font-size for that fallback. */
-  font-size: clamp(2.75rem, 11vw, 7rem);
-  transform: translate(calc(-50% + var(--eye-dx)), -50%);
+  font-size: var(--word-size);
+  transform: translate(calc(-50% + var(--eye-dx)), calc(-50% + var(--eye-dy)));
   width: max(min(260vh, 190vw, 2400px), var(--field-floor)); height: auto; opacity: var(--field-core); pointer-events: none; user-select: none; -webkit-user-select: none; font-family: 'JetBrains Mono', ui-monospace, monospace; }
 /* Deliberately NO mix-blend-mode here. `screen` is the obvious way to make hues
    glow on a near-black ground, and it looked good — but A/B'd over 4 alternating
@@ -545,9 +607,9 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
    field cut through the logo. That mask is gone, and nothing reads .mark any
    more — the class is free if you ever want it.) */
 .logo { position: absolute; z-index: 1; margin: 0;
-  /* same clamp as h1 so 1em here == one h1 font-size, and the placement holds
+  /* same --word-size as h1 so 1em here == one h1 font-size, and the placement holds
      at every viewport without re-tuning */
-  font-size: clamp(2.75rem, 11vw, 7rem);
+  font-size: var(--word-size);
   /* STACKED LOCKUP (November 2026). The new mark is a solid ring with an
      orbit. Parked on the final A like the old hairline ring, it read as an
      eighth letter, ZAFETRAO, and the h1's halo ate into it. So it stands
@@ -660,7 +722,7 @@ h1 { position: relative;
      three cannot drift; see the .tagline comment for what drift cost last time. */
   left: calc(-1 * var(--word-shift-applied, var(--word-shift-fallback)));
   z-index: 2; margin: 0; font-family: var(--wordmark); font-weight: 400;
-  font-size: clamp(2.75rem, 11vw, 7rem); line-height: 1; letter-spacing: 0.14em;
+  font-size: var(--word-size); line-height: 1; letter-spacing: 0.14em;
   text-indent: 0.14em; /* balances the trailing tracking so the word optically centers */
   color: var(--paper); text-transform: uppercase;
   /* legibility over the fragment field, done at the GLYPH instead of by cutting
@@ -1973,6 +2035,7 @@ try { (function () {
       // started wide has a stale px value written and only removing it gets the
       // fallback back.
       root.style.removeProperty('--eye-dx');
+      root.style.removeProperty('--eye-dy');
       root.classList.add('mark-locked');
       return;
     }
@@ -2009,6 +2072,18 @@ try { (function () {
     // wrap's undrifted centre.
     var wr = mainEl.getBoundingClientRect();
     root.style.setProperty('--eye-dx', (markCentre - (wr.left + wr.width / 2)).toFixed(2) + 'px');
+    // The vertical half of the same lock, and it is NOT read off the mark's own
+    // rect, though that is the obvious symmetry. The mark enters by rising 16px
+    // (`markin`, 0.2s delay, fill-mode both), and this function first runs
+    // inside that delay — so mr.top is 16px low on the first pass and anywhere
+    // in between on the `load` and fonts.ready passes. The horizontal read above
+    // is immune only because the rise is vertical. So derive it from boxes that
+    // do not animate: the mark hangs off the card's top edge (bottom:100%), and
+    // a translate never changes a rect's HEIGHT, so its resting centre is the
+    // card's top less half that height. The card itself is never transformed —
+    // the h1 inside it is, which is why this reads the card and not the h1.
+    var cardTop = h1el.parentNode.getBoundingClientRect().top;
+    root.style.setProperty('--eye-dy', (cardTop - mr.height / 2 - (wr.top + wr.height / 2)).toFixed(2) + 'px');
     // Set last on purpose: every early return ABOVE the markHidden branch leaves
     // it unset, and a mark that could not be measured should be treated exactly
     // like one that was never placed. It means "the placement pass ran to a

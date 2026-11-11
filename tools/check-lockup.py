@@ -23,6 +23,10 @@ WHAT IT CHECKS, at each width, in both conditions:
   - --word-shift-applied is SET whenever the page's script ran, and absent when
     it did not. A set value proves the cap actually executed rather than the
     CSS fallback silently carrying the layout.
+  - at the SHORT viewports (wider than tall: phones in landscape, short desktop
+    windows), the mark's top edge and the tagline's bottom edge are on screen.
+  - the coil's eye is on the mark's centre, horizontally and vertically.
+  - the field's disc reaches the farthest corner of the viewport.
 
 WHY IT DRIVES IFRAMES RATHER THAN --window-size
 Headless Chrome CLAMPS --window-size to a minimum width near 500px: asking for
@@ -97,6 +101,42 @@ MARK_HIDDEN_BELOW = 0   # stacked lockup (Nov 2026): the mark is drawn at every 
 # slide, not a cliff, and 380 is where it has arrived -- which is also the width
 # the fallback rule already used, so there is one threshold and not two.
 MARK_HIDDEN_BELOW_ANY = 0
+
+# THE VERTICAL AXIS, which every assertion above is blind to. The width sweep
+# runs every iframe 760px tall, and at 760px nothing can leave the top or the
+# bottom -- so when the stacked mark went in (November 2026) and stood 1.6em
+# above a word that is centred on its own line box, this check stayed green
+# while the mark's top edge left the screen on every phone held sideways.
+# Measured on that build, mark box top in px: 844x390 0, 915x412 -5,
+# 1024x360 -55, 1280x400 -35, 1600x420 -25. main is overflow:hidden, so a
+# negative top is a cut mark, not a scrollbar.
+# These are (width, height). The phones are real landscape viewports -- 844x340
+# is the 844x390 iPhone with Safari's toolbar showing -- and the last three are
+# short desktop windows, where the size clamp is at its 7rem cap and the height
+# term is the only thing holding the mark on screen.
+SHORT = [(568, 320), (667, 375), (740, 360), (844, 340), (844, 390), (915, 412),
+         (1024, 360), (1280, 400), (1600, 420),
+         # ...and two ordinary shapes, a portrait phone and a desktop window, so the
+         # eye assertion below is not only ever made at the short end.
+         (390, 844), (1440, 900),
+         # ...and a large monitor, where the field's corners were bare.
+         (2560, 1440)]
+
+# THE COIL'S EYE SITS IN THE MARK, on both axes. The boundary check above reads
+# the coil's translateX and nothing else, because the eye lock WAS horizontal
+# only: the old ring sat on the wordmark's centre line. Stacking the mark moved
+# it 1.3em up and the eye did not follow -- measured at 1440x900, mark centre
+# y=304 against eye y=450 -- which left the hollow at the centre of the spiral
+# open behind the word and ran the coil's first turn through the mark's ring.
+# Asserted as the distance between the two centres, since that is the claim.
+EYE_ON_MARK_TOLERANCE_PX = 1.0
+
+# THE FIELD REACHES EVERY CORNER. The coil fills a disc, not the svg's square
+# box: its outermost turn is 248 of the 250 user units from the eye to the box
+# edge. So the test is the eye's distance to the FARTHEST viewport corner
+# against that radius, not the box against the viewport's edges -- a box that
+# reaches all four edges still leaves all four corners bare.
+COIL_RADIUS_OF_BOX = 248 / 500
 
 
 def die(msg):
@@ -178,6 +218,62 @@ addEventListener('load', function(){ setTimeout(function(){
 """
 
 
+SHORT_HARNESS = """<meta charset=utf-8><title>lockup, short viewports</title>
+<style>html,body{margin:0;background:#0b0b0b}
+.wrap{display:flex;align-items:flex-start}iframe{border:0;flex:0 0 auto}</style>
+<div class=wrap id=w></div>
+<script>
+var SIZES=%s, COND=location.hash.slice(1)||'js-on';
+SIZES.forEach(function(wh){
+  var f=document.createElement('iframe');
+  f.style.width=wh[0]+'px'; f.style.height=wh[1]+'px';
+  f.dataset.w=wh[0]; f.dataset.h=wh[1]; f.src=COND+'.html';
+  document.getElementById('w').appendChild(f);
+});
+addEventListener('load', function(){ setTimeout(function(){
+  var out=[];
+  document.querySelectorAll('iframe').forEach(function(f){
+    try{
+      var d=f.contentDocument, win=f.contentWindow;
+      // Measure the SETTLED lockup. The mark enters by rising 16px (`markin`),
+      // and an iframe caught mid-rise reports a top up to 16px lower than the
+      // one it comes to rest at -- enough to pass a mark that ends up cut.
+      d.getAnimations().forEach(function(a){ try{ a.finish(); }catch(e){} });
+      var lr=d.querySelector('.logo').getBoundingClientRect();
+      var tr=d.querySelector('.tagline').getBoundingClientRect();
+      // .ghost's box centre IS the eye: viewBox "-150 -150 500 500", spiral
+      // centre at user-space (100,100). No pointer has moved, so the wrap's
+      // parallax transform is still zero and the rect is the resting one.
+      var gr=d.querySelector('.ghost-wrap .ghost').getBoundingClientRect();
+      out.push({w:+f.dataset.w, h:+f.dataset.h, vw:win.innerWidth, vh:win.innerHeight,
+                eyeOffX:+((gr.left+gr.width/2)-(lr.left+lr.width/2)).toFixed(1),
+                eyeOffY:+((gr.top+gr.height/2)-(lr.top+lr.height/2)).toFixed(1),
+                boxW:+gr.width.toFixed(1),
+                cornerDist:+Math.hypot(Math.max(gr.left+gr.width/2, win.innerWidth-(gr.left+gr.width/2)),
+                                       Math.max(gr.top+gr.height/2, win.innerHeight-(gr.top+gr.height/2))).toFixed(1),
+                markTop:+lr.top.toFixed(1), tagBottom:+tr.bottom.toFixed(1),
+                fs:win.getComputedStyle(d.querySelector('h1')).fontSize});
+    }catch(e){ out.push({w:+f.dataset.w, h:+f.dataset.h, error:String(e)}); }
+  });
+  var pre=document.createElement('pre'); pre.id='out';
+  pre.textContent=JSON.stringify(out); document.body.appendChild(pre);
+}, 1400); });
+</script>
+"""
+
+
+def run_short(port, cond):
+    url = f"http://127.0.0.1:{port}/short.html#{cond}"
+    argv = [str(CHROME), "--headless", "--disable-gpu",
+            f"--window-size={sum(w for w, _ in SHORT) + 200},820",
+            "--virtual-time-budget=30000", "--dump-dom", url]
+    dom = subprocess.run(argv, capture_output=True, text=True).stdout
+    m = re.search(r'<pre id="out">(.*?)</pre>', dom, re.S)
+    if not m:
+        die(f"{cond}: short-viewport harness produced no result")
+    return json.loads(html.unescape(m.group(1)))
+
+
 def run_condition(served, port, cond):
     url = f"http://127.0.0.1:{port}/harness.html#{cond}"
     argv = [str(CHROME), "--headless", "--disable-gpu",
@@ -209,6 +305,7 @@ def main():
         (served / "js-on.html").write_text(src, encoding="utf-8")
         (served / "js-off.html").write_text(off, encoding="utf-8")
         (served / "harness.html").write_text(HARNESS % json.dumps(WIDTHS), encoding="utf-8")
+        (served / "short.html").write_text(SHORT_HARNESS % json.dumps(SHORT), encoding="utf-8")
         port = free_port()
         srv = subprocess.Popen([sys.executable, "-m", "http.server", str(port),
                                 "--bind", "127.0.0.1", "--directory", str(served)],
@@ -217,6 +314,7 @@ def main():
             import time
             time.sleep(1.5)
             results = {c: run_condition(served, port, c) for c in ("js-on", "js-off")}
+            short = {c: run_short(port, c) for c in ("js-on", "js-off")}
         finally:
             srv.terminate()
             srv.wait()
@@ -319,6 +417,32 @@ def main():
         if not ok_ink:
             fails.append(f"{cond}: wordmark ink centre jumps {d_ink:+.1f}px across {lo_w}->{hi_w}")
 
+    # ---- vertical containment, at viewports wider than they are tall --------
+    print()
+    print(f"{'cond':8} {'viewport':>10} {'fs':>8} {'mark.top':>9} {'tag.bottom':>11} {'eye-mark':>12}  verdict")
+    for cond, rows in short.items():
+        for r in rows:
+            if r.get("error"):
+                fails.append(f"{cond} @ {r['w']}x{r['h']}: {r['error']}")
+                continue
+            bad = []
+            if (r["vw"], r["vh"]) != (r["w"], r["h"]):
+                bad.append(f"viewport came back {r['vw']}x{r['vh']}")
+            if r["markTop"] < -0.5:
+                bad.append(f"mark top {r['markTop']} < 0 — the mark is cut by the top edge")
+            if r["tagBottom"] > r["vh"] + 0.5:
+                bad.append(f"tagline bottom {r['tagBottom']} > {r['vh']}")
+            if max(abs(r["eyeOffX"]), abs(r["eyeOffY"])) > EYE_ON_MARK_TOLERANCE_PX:
+                bad.append(f"the coil's eye is ({r['eyeOffX']:+}, {r['eyeOffY']:+})px off the mark's centre")
+            reach = r["boxW"] * COIL_RADIUS_OF_BOX
+            if reach + 0.5 < r["cornerDist"]:
+                bad.append(f"field reaches {reach:.0f}px from the eye, farthest corner is "
+                           f"{r['cornerDist']:.0f}px away — bare corner")
+            print(f"{cond:8} {str(r['w']) + 'x' + str(r['h']):>10} {r['fs']:>8} {r['markTop']:>9} "
+                  f"{r['tagBottom']:>11} {str(r['eyeOffX']) + ',' + str(r['eyeOffY']):>12}  "
+                  f"{'; '.join(bad) if bad else 'ok'}")
+            fails += [f"{cond} @ {r['w']}x{r['h']}: {b}" for b in bad]
+
     if "--render" in sys.argv[1:]:
         print("\n(--render writes provenance-named panels; see tools/check-lockup.py docstring)")
 
@@ -328,8 +452,9 @@ def main():
             print(f"FAIL: {f}")
         die(f"{len(fails)} lockup assertion(s) failed")
     print("\nOK: the wordmark sits inside the viewport at every width with and without JS, "
-          "the mark clears every letter, and the two sides of the\n"
-          "    mark threshold agree about where the coil's eye is")
+          "the mark clears every letter, the two sides of the\n"
+          "    mark threshold agree about where the coil's eye is, the mark and tagline stay on "
+          "screen at every short viewport,\n    the coil's eye sits in the mark, and the field reaches every corner")
 
 
 if __name__ == "__main__":
