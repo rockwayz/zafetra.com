@@ -49,7 +49,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 INDEX = ROOT / "index.html"
 
-CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+import os
+CHROME = Path(os.environ.get("CHROME", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"))
 
 # 280 is the Galaxy Fold cover screen and the width where `.card`'s max-width
 # stops it shrink-wrapping the h1 — the term that broke the shift cap. 360 is a
@@ -86,7 +87,7 @@ CONTAINMENT_ASSERTED_FROM = 280
 # Below this the no-JS render drops the mark rather than park it on the final
 # letter; see the matching media query in index.html. Asserted here so the two
 # cannot drift apart.
-MARK_HIDDEN_BELOW = 380
+MARK_HIDDEN_BELOW = 0   # stacked lockup (Nov 2026): the mark is drawn at every width
 
 # With JS the shift is CAPPED rather than zeroed, and the mark is anchored to the
 # card's right edge, so every pixel the wordmark fails to slide is a pixel the
@@ -95,7 +96,7 @@ MARK_HIDDEN_BELOW = 380
 # +10% at 340, +36% at 360, +55% at 375, +62% at 380, +65% from 390 to 1440. A
 # slide, not a cliff, and 380 is where it has arrived -- which is also the width
 # the fallback rule already used, so there is one threshold and not two.
-MARK_HIDDEN_BELOW_ANY = 380
+MARK_HIDDEN_BELOW_ANY = 0
 
 
 def die(msg):
@@ -138,7 +139,10 @@ addEventListener('load', function(){ setTimeout(function(){
         for(var i=0;i<tn.length;i++){
           var q=d.createRange(); q.setStart(tn,i); q.setEnd(tn,i+1);
           var cb=q.getBoundingClientRect();
-          if(Math.min(cb.right,lr.right)-Math.max(cb.left,lr.left) > 1) covered++;
+          // stacked lockup: the mark's box must end above the h1's line box (line-height 1,
+          // so the caps sit inside it). Glyph ranges are NOT used for the vertical test:
+          // they carry the font's full ascent and reach above the line box.
+          if(lr.bottom > r.top + 1 && Math.min(cb.right,lr.right)-Math.max(cb.left,lr.left) > 1) covered++;
         }
       }
       var motto=d.querySelectorAll('main p')[0];
@@ -268,9 +272,10 @@ def main():
                 bad.append(f"mark right {r['markRight']} > {r['vw']}")
             # THE ASSERTION THIS CHECK WAS MISSING: the mark may tuck into the
             # final glyph and no further. Two letters is the collision.
-            if r["markShown"] and r.get("markCovers", 0) > 1:
+            # stacked lockup (Nov 2026): the mark stands above the word and may touch no letter
+            if r["markShown"] and r.get("markCovers", 0) > 0:
                 bad.append(f"mark covers {r['markCovers']} letters of the wordmark "
-                           f"(1 = tucked into the final glyph, >1 = collision)")
+                           f"(the stacked mark must clear every letter)")
             # REPORTED, NOT ASSERTED: the motto is nowrap with a 286px intrinsic
             # floor, so it overhangs the viewport by ~2px from 300 to 380px. Both
             # available fixes (let it wrap, or drop the clamp floor) change the
@@ -323,7 +328,7 @@ def main():
             print(f"FAIL: {f}")
         die(f"{len(fails)} lockup assertion(s) failed")
     print("\nOK: the wordmark sits inside the viewport at every width with and without JS, "
-          "the mark never covers more than the final glyph, and the two sides of the\n"
+          "the mark clears every letter, and the two sides of the\n"
           "    mark threshold agree about where the coil's eye is")
 
 

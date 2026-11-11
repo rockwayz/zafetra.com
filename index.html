@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-3U1jwu1Syc3MIkbDb8TOta7DCTDM+Cw/WytEdglLOcU=' 'sha256-9Ack/UYFQ5UfZ3uki5J3zIpJSWTZSM/T/eqiKcXL898='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-M27JIj27CT1IUDmtP831H//8g3AikcxAxUy9zaLInOA='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-3U1jwu1Syc3MIkbDb8TOta7DCTDM+Cw/WytEdglLOcU=' 'sha256-9Ack/UYFQ5UfZ3uki5J3zIpJSWTZSM/T/eqiKcXL898='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-6np7HGW/Flk1LKby62T2M9po5A7wSAFJ46aWGLGfF3Q='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -80,7 +80,7 @@
 <meta name="twitter:description" content="Zafetra is an AI lab building AI agents that do real work, training environments for AI models, and the security testing that keeps them working in production. Making the impossible legible.">
 <meta name="twitter:image" content="https://zafetra.com/assets/og.png">
 <meta name="twitter:image:alt" content="ZAFETRA in spaced white serif capitals on a near-black ground, above the line: Magic is a formula you haven’t read yet.">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%2064%2064%27%3E%3Crect%20width%3D%2764%27%20height%3D%2764%27%20fill%3D%27%23040404%27/%3E%3Cg%20fill%3D%27none%27%20stroke%3D%27%23F8F4F0%27%20stroke-width%3D%274.6%27%3E%3Cpath%20d%3D%27M32%206%20A26%2026%200%201%200%2031.1%2058%27/%3E%3Cpath%20d%3D%27M58%2032%20A26%2026%200%200%201%2034.7%2057.9%27/%3E%3C/g%3E%3Ccircle%20cx%3D%2732%27%20cy%3D%2732%27%20r%3D%2716%27%20fill%3D%27none%27%20stroke%3D%27%23F8F4F0%27%20stroke-width%3D%272.8%27/%3E%3Cline%20x1%3D%2732%27%20y1%3D%2716%27%20x2%3D%2732%27%20y2%3D%2748%27%20stroke%3D%27%23F8F4F0%27%20stroke-width%3D%272.8%27/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%27221%20224%201600%201600%27%3E%3Crect%20x%3D%27221%27%20y%3D%27224%27%20width%3D%271600%27%20height%3D%271600%27%20fill%3D%27%23040404%27/%3E%3Cpath%20fill%3D%27%23F8F4F0%27%20d%3D%27M1017%201556C911%201552%20807%201514%20723%201451C714%201445%20705%201438%20704%201437L701%201434L712%201432C747%201425%20800%201411%20844%201398C900%201381%20996%201348%20993%201346C992%201346%20988%201345%20984%201344C966%201341%20938%201333%20918%201325C907%201321%20888%201312%20888%201311C888%201311%20895%201308%20903%201306C927%201299%20999%201275%201026%201265C1129%201227%201235%201179%201328%201129C1341%201122%201352%201116%201352%201116C1352%201117%201344%201140%201340%201150C1335%201161%201327%201177%201322%201186C1320%201190%201318%201193%201318%201193C1318%201194%201322%201192%201326%201190C1414%201138%201490%201088%201554%201036C1564%201028%201572%201022%201573%201022C1573%201022%201572%201049%201571%201067C1568%201107%201559%201149%201547%201188C1503%201322%201409%201433%201284%201497C1202%201540%201111%201560%201017%201556ZM474%201456C382%201450%20320%201421%20289%201370C282%201359%20280%201350%20280%201339C280%201292%20337%201268%20370%201302C375%201307%20378%201311%20381%201318C385%201325%20387%201329%20392%201333C417%201357%20481%201371%20560%201369C583%201368%20622%201365%20627%201364C630%201364%20630%201363%20620%201352C559%201273%20521%201180%20510%201079C508%201055%20508%20993%20510%20969C521%20872%20555%20783%20612%20707C732%20546%20929%20466%201127%20499C1224%20514%201314%20557%201390%20622C1404%20634%201430%20661%201442%20674C1472%20710%201494%20742%201516%20784C1543%20839%201561%20896%201568%20955C1569%20964%201571%20972%201571%20972C1572%20971%201602%20947%201615%20935C1632%20920%201669%20884%201681%20869C1717%20827%201739%20789%201745%20757C1747%20745%201746%20725%201743%20715C1741%20708%201741%20708%201742%20706C1745%20702%201748%20701%201751%20703C1754%20705%201759%20717%201762%20728C1764%20738%201764%20763%201761%20776C1754%20810%201735%20847%201706%20886C1677%20925%201637%20966%201588%201008C1580%201015%201573%201021%201573%201021C1573%201021%201573%201011%201572%20998C1571%20986%201571%20976%201570%20975C1570%20974%201565%20977%201548%20990C1511%201018%201477%201041%201434%201068C1408%201084%201355%201115%201353%201115C1353%201115%201354%201110%201355%201104C1367%201058%201368%201001%201357%20953C1340%20877%201296%20809%201232%20762C1189%20730%201137%20709%201081%20701C1063%20699%201018%20699%201000%20701C933%20711%20876%20736%20827%20779C707%20882%20680%201058%20763%201194C790%201238%20832%201279%20877%201305C883%201308%20886%201311%20885%201311C883%201312%20851%201321%20826%201327C766%201343%20705%201355%20652%201361C641%201363%20631%201364%20631%201364C629%201366%20678%201416%20696%201431C699%201432%20700%201434%20700%201434C699%201435%20651%201444%20630%201447C607%201450%20579%201453%20558%201455C537%201456%20491%201457%20474%201456ZM1066%201348C1153%201341%201233%201299%201290%201232C1298%201222%201316%201197%201316%201196C1316%201195%201311%201198%201305%201201C1218%201250%201121%201296%201026%201334C993%201347%20994%201346%201013%201348C1027%201349%201051%201349%201066%201348Z%27/%3E%3C/svg%3E">
 <!-- Additive fallbacks for clients that request the conventional root paths and
      never read this markup. The data: SVG above stays the preferred icon; both
      files are generated from it by tools/make-icons.py, which asserts its
@@ -210,7 +210,7 @@
      2.1515em on Bodoni 72, a 39px spread. Georgia wants 2.3426em, Times New
      Roman 2.3089em. Pick one and the rest drift, so JS measures per render. */
   --ink-inset: 0.5105em;
-  --eye-dx: 2.503em;
+  --eye-dx: 0em;   /* stacked lockup (Nov 2026): the mark is on the centre line */
   /* how far left the wordmark slides out from under the mark, in h1 em. applied
      as `left` on the h1 — RELATIVE offset, not a transform, for two reasons: it
      does not disturb layout, so the card keeps shrink-wrapping the unshifted
@@ -222,7 +222,9 @@
      a WISH, and it gets capped to the room that actually exists. Below ~400px
      the font-size clamp floors at 2.75rem while the viewport keeps narrowing,
      so a shift that fits at 375px ran the Z off the left edge at 320px. */
-  --word-shift-em: 1.15;
+  /* 0 since the November 2026 mark: the mark stands above the word, so the
+     word sits centred and there is no gap to open. */
+  --word-shift-em: 0;
   /* The NO-JS fallback for that wish, in px, defined ONCE and consumed by all
      three of h1 / .motto / .tagline. It used to be restated inline at each of
      them, which is a standing invitation to drift — and drift here is the
@@ -510,7 +512,7 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
      to assistive tech, and the wordmark simply stands on its own.
      380 also happens to be the threshold this block already used for the
      fallback, which is why there is one rule here and not two. */
-  .logo { display: none; }
+  /* the old parked mark was hidden here; the stacked mark fits at every width */
 }
 /* The motto is wider than the word at phone widths, so riding the word's full
    shift walks it off the left edge. With JS the shift is capped per render (see
@@ -543,15 +545,21 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
   /* same clamp as h1 so 1em here == one h1 font-size, and the placement holds
      at every viewport without re-tuning */
   font-size: clamp(2.75rem, 11vw, 7rem);
-  width: 1.9em; height: 1.9em;
+  /* STACKED LOCKUP (November 2026). The new mark is a solid ring with an
+     orbit. Parked on the final A like the old hairline ring, it read as an
+     eighth letter, ZAFETRAO, and the h1's halo ate into it. So it stands
+     centred above the word. lockMarkAndEye() still runs unchanged: the shift
+     wish is 0, --ink-inset is written but no longer read, and hop 2 locks the
+     coil's eye to the mark's centre, which is now the page's centre line. */
+  width: 1.6em; height: 1.6em;
   /* the final glyph's INK centre sits --ink-inset from the h1's right edge: its
      advance less the trailing letter-spacing, halved. that distance is a
      property of the FACE, not of the layout, so lockMarkAndEye() measures it
      per render rather than trusting a constant. the card shrink-wraps to the
      h1, so the card's right edge is the h1's right edge. */
-  top: 50%; right: var(--ink-inset); transform: translate(50%, -50%);
-  /* same glyph-level halo as the h1, in the form SVG strokes take. the ring is
-     hairline, so it needs this more than the letterforms do. */
+  left: 50%; bottom: 100%; transform: translate(-50%, 0);
+  /* same glyph-level halo as the h1, in the form SVG shapes take. the orbit's
+     tail is hairline at its tip, so it needs this as much as the letterforms. */
   filter: drop-shadow(0 0 6px rgba(4, 4, 4, 1)) drop-shadow(0 0 16px rgba(4, 4, 4, 0.95))
           drop-shadow(0 0 34px rgba(4, 4, 4, 0.8));
   /* The mark cannot use the shared `fade` keyframe — that animates a bare
@@ -563,7 +571,7 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
      timing is matched to the h1 so they move as one object. */
   animation: markin 1.1s var(--ease-out) 0.20s both; }
 @keyframes fadein { from { opacity: 0; } }
-@keyframes markin { from { opacity: 0; transform: translate(50%, calc(-50% + 16px)); } }
+@keyframes markin { from { opacity: 0; transform: translate(-50%, 16px); } }
 /* The motto. Out of flow for the same reason as the tagline below: the card is
    width:max-content, and at the h1's clamp floor this line measures wider than
    the wordmark — in normal flow it would widen the card and drag the mark off
@@ -638,8 +646,7 @@ main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidd
 @media (max-width: 640px) { .tw-caret { display: none; } }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.logo .g { fill: none; stroke: var(--paper); stroke-linecap: butt; }
-.logo .tri { fill: var(--signal); }
+.logo path { fill: var(--paper); }
 h1 { position: relative;
   /* JS writes --word-shift-applied in px, already capped to the available room.
      The fallback is the wish, capped only by the narrow-viewport media query
@@ -1251,19 +1258,13 @@ h1 { position: relative;
 
   <div class="wrap">
     <div class="card">
-      <svg class="logo" viewBox="0 0 200 200" aria-hidden="true" focusable="false">
-        <g class="g">
-          <!-- outer ring as an outlined annulus: outer edge -> radial cap ->
-               inner edge -> radial cap, closed. wide gap 12->3 o'clock,
-               narrow gap at bottom centre. -->
-          <path stroke-width="1.8" d="M 100 35 A 65 65 0 1 0 97.7 165.0 L 97.9 159.0 A 59 59 0 1 1 100 41 Z"/>
-          <path stroke-width="1.8" d="M 165 100 A 65 65 0 0 1 106.8 164.6 L 106.2 158.7 A 59 59 0 0 0 159 100 Z"/>
-          <circle stroke-width="1.6" cx="100" cy="100" r="40"/>
-          <line stroke-width="1.6" x1="100" y1="60" x2="100" y2="140"/>
-        </g>
-        <!-- right angle at TOP-RIGHT: horizontal top edge, vertical right edge,
-             hypotenuse top-left down-right to the bottom point -->
-        <polygon class="tri" points="137,47 159,47 159,69"/>
+      <svg class="logo" viewBox="221 205 1638 1638" aria-hidden="true" focusable="false">
+        <!-- the Zafetra mark (November 2026): a solid ring crossed by an orbit
+             that sweeps under the wordmark. Ring centre is the box centre, ring
+             outer radius is 0.325 of the box, as the old ring was, so the
+             lockup geometry and every measurement in check-lockup still hold.
+             Same path as assets/mark.svg; tools/make-icons.py asserts it. -->
+        <path d="M1017 1556C911 1552 807 1514 723 1451C714 1445 705 1438 704 1437L701 1434L712 1432C747 1425 800 1411 844 1398C900 1381 996 1348 993 1346C992 1346 988 1345 984 1344C966 1341 938 1333 918 1325C907 1321 888 1312 888 1311C888 1311 895 1308 903 1306C927 1299 999 1275 1026 1265C1129 1227 1235 1179 1328 1129C1341 1122 1352 1116 1352 1116C1352 1117 1344 1140 1340 1150C1335 1161 1327 1177 1322 1186C1320 1190 1318 1193 1318 1193C1318 1194 1322 1192 1326 1190C1414 1138 1490 1088 1554 1036C1564 1028 1572 1022 1573 1022C1573 1022 1572 1049 1571 1067C1568 1107 1559 1149 1547 1188C1503 1322 1409 1433 1284 1497C1202 1540 1111 1560 1017 1556ZM474 1456C382 1450 320 1421 289 1370C282 1359 280 1350 280 1339C280 1292 337 1268 370 1302C375 1307 378 1311 381 1318C385 1325 387 1329 392 1333C417 1357 481 1371 560 1369C583 1368 622 1365 627 1364C630 1364 630 1363 620 1352C559 1273 521 1180 510 1079C508 1055 508 993 510 969C521 872 555 783 612 707C732 546 929 466 1127 499C1224 514 1314 557 1390 622C1404 634 1430 661 1442 674C1472 710 1494 742 1516 784C1543 839 1561 896 1568 955C1569 964 1571 972 1571 972C1572 971 1602 947 1615 935C1632 920 1669 884 1681 869C1717 827 1739 789 1745 757C1747 745 1746 725 1743 715C1741 708 1741 708 1742 706C1745 702 1748 701 1751 703C1754 705 1759 717 1762 728C1764 738 1764 763 1761 776C1754 810 1735 847 1706 886C1677 925 1637 966 1588 1008C1580 1015 1573 1021 1573 1021C1573 1021 1573 1011 1572 998C1571 986 1571 976 1570 975C1570 974 1565 977 1548 990C1511 1018 1477 1041 1434 1068C1408 1084 1355 1115 1353 1115C1353 1115 1354 1110 1355 1104C1367 1058 1368 1001 1357 953C1340 877 1296 809 1232 762C1189 730 1137 709 1081 701C1063 699 1018 699 1000 701C933 711 876 736 827 779C707 882 680 1058 763 1194C790 1238 832 1279 877 1305C883 1308 886 1311 885 1311C883 1312 851 1321 826 1327C766 1343 705 1355 652 1361C641 1363 631 1364 631 1364C629 1366 678 1416 696 1431C699 1432 700 1434 700 1434C699 1435 651 1444 630 1447C607 1450 579 1453 558 1455C537 1456 491 1457 474 1456ZM1066 1348C1153 1341 1233 1299 1290 1232C1298 1222 1316 1197 1316 1196C1316 1195 1311 1198 1305 1201C1218 1250 1121 1296 1026 1334C993 1347 994 1346 1013 1348C1027 1349 1051 1349 1066 1348Z"/>
       </svg>
       <h1>Zafetra</h1>
       <p class="motto">Magic is a formula you haven’t read yet.</p>
