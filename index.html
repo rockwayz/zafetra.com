@@ -50,7 +50,7 @@
      merits, and the header layer comes with whatever answers it. Until then a
      brochure page with no frames and no inputs is not what clickjacking is
      for. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-3U1jwu1Syc3MIkbDb8TOta7DCTDM+Cw/WytEdglLOcU=' 'sha256-iIs6O0u+Leziulkvd8cxxeoMhMKDoJrdZajwR6C99QI='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-NCWEJwwK9S/CGw16YqYVYa8XrrUTz+f7V5iYAA66Z4o='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-3U1jwu1Syc3MIkbDb8TOta7DCTDM+Cw/WytEdglLOcU=' 'sha256-YQRDAhdRe3LGKEOmOY9zCxTasDO5x1HIGHEdfh+2ftE='; style-src 'sha256-ZI/whmeYrR9jSuV+ZtEC0ArR21st9XbKXXzh5nrKtnE=' 'sha256-r+ed7mGlDD3jIcUqh8VWF4t+mGJaThRvG08w+S+ztgU='; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <!-- never leak the full URL to another origin; this page links out to nothing
      today, so this is purely a guard against a future link doing it. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -362,6 +362,26 @@ body::after { content: ''; position: fixed; inset: 0; z-index: 5; pointer-events
 /* cursor takeover only over decorative empty space — text keeps its I-beam */
 .has-orb main { cursor: none; }
 .has-orb .card { cursor: auto; }
+/* THE FIELD IS TAKEN OUT OF HIT TESTING, by putting something in front of it.
+   Every pointer move is hit-tested before any handler runs, and a hit test walks
+   front to back until something accepts it. Nothing in front of the field did:
+   .wrap is only as tall as the wordmark, and #orb, #torch, #reveal and #feather
+   are pointer-events:none. So everywhere off the card the walk fell through to
+   the field — 567 <text> on <textPath>, and 567 again in the torch clone — and
+   pointer-events:none does not shorten that walk, it only makes every node in it
+   decline. Traced over a 12s move-pause-move pattern, 1440x900 dsf2, 4x CPU:
+       HitTest  4078ms across 325 moves, 12.5ms each     (this rule absent)
+       HitTest    63ms across 373 moves,  0.2ms each     (this rule present)
+   That was the largest single main-thread cost while the pointer moves, larger
+   than paint, and it is paid BEFORE the frame's rAF — so it lands directly on the
+   orb, which is the only cursor this page shows.
+   An empty box accepts a hit like any other, so one transparent layer above the
+   field ends the walk there. z-index 6 with main::before first in tree order
+   puts it over everything at 5 and under .wrap, which is also 6 and comes later:
+   the card still gets its own hits, its text still selects, and e.target is
+   `main` everywhere else, which is what the pointermove handler's
+   closest('.card') test already expects. It paints nothing. */
+main::before { content: ''; position: absolute; inset: 0; z-index: 6; }
 @media (forced-colors: active) { #torch, #orb, #reveal, #feather, body::after { display: none !important; } .has-orb main { cursor: auto !important; } }
 /* layered ground: warm tint toward the card, vignette at the base */
 main { min-height: 100vh; min-height: 100svh; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 64px 24px; background: radial-gradient(52% 58% at 50% 100%, rgba(4, 4, 4, 0) 0%, rgba(0, 0, 0, 0.5) 100%), radial-gradient(120% 90% at 32% 18%, #0a0705 0%, #040404 62%); }
@@ -2272,6 +2292,33 @@ try { (function () {
   // Cut the write COUNT structurally instead. DENSITY is the dial — raise toward
   // 1 for a denser front and re-read the curve above for the frame rate it buys.
   var DENSITY = 0.5;
+  // ---- THE FIELD IS NEVER WRITTEN WHILE THE POINTER IS MOVING ---------------
+  // "The wave is the reward for stopping" (see `loop`) was the right rule and
+  // it was only half enforced. The wave LAUNCHED on a settle, but once in
+  // flight it kept writing for its whole ~3.5s whatever the pointer did next,
+  // unless the pointer got back above the `spin` threshold — and when it did,
+  // the cancel healed every dirty fragment at once, two writes each inside
+  // ~270ms, on exactly the frames the hand had started asking for. A real hand
+  // does not drag for six seconds; it moves, rests, moves. Under that pattern
+  // nearly every rest launches a wave and nearly every resume lands in one.
+  // Traced over 12s of move-pause-move, 1440x900 dsf2, 4x CPU, with the hit-test
+  // shield already in (see main::before), so this is the wave's cost alone:
+  //                          fps    frames >34ms   stalled >50ms   long tasks
+  //   writes while moving   44.4        52            2050ms          10
+  //   no writes at all      56.3         3               0ms           0
+  // The orb is this page's only cursor and it is drawn from rAF, so each of
+  // those stalls is the cursor stopping dead under a hand that is still moving.
+  // So the gate is the pointer itself, not the speed estimate: nothing below
+  // writes a fragment unless the pointer has been still for STILL_MS. A wave in
+  // flight HOLDS its front while the pointer moves and carries on when it
+  // rests; a cancelled or finished wave leaves its junk standing — it is the
+  // same grey type as the field — and heals on the next rest. 250ms is longer
+  // than any gap between events in a continuous move and shorter than the
+  // ~400ms speed.v already takes to decay to the idle threshold after a sweep,
+  // so a wave that follows a real stop launches exactly when it did before.
+  var STILL_MS = 250;
+  var armed = false, healWanted = false;
+  function pointerStill() { return performance.now() - lastPointerAt > STILL_MS; }
   function junkNode(n) {
     if (n.dirty) return;                  // already junk: re-junking buys a repaint, not a picture
     if (Math.random() >= DENSITY) return; // thin the front rather than slow it
@@ -2283,7 +2330,12 @@ try { (function () {
     // fragment (steps 0,1,2 plus the restore) and resolve traffic was 68% of all
     // writes in a classified 6s trace; it now costs 2. Every chain still
     // TERMINATES unconditionally at the restore, so no fragment can be stranded
-    // as junk and the 900ms hard-heal in `loop` stays a backstop, not a crutch.
+    // as junk: a chain that is stood down below hands the fragment back to the
+    // heal pass in `loop`, which runs until nothing is dirty.
+    // Both steps are writes, so both wait for a still pointer. Standing down
+    // rather than re-arming a timer: the heal pass owns the retry, and it only
+    // fires on a rest, so a stood-down chain cannot wake up mid-move.
+    if (!pointerStill()) { n.resolving = false; healWanted = true; return; }
     if (step >= 1) { n.el.textContent = n.original; n.dirty = false; n.resolving = false; return; }
     var junk = codeJunk(n.original.length);
     var out = '';
@@ -2355,18 +2407,20 @@ try { (function () {
       // started the field glitching — a state the untouched render never enters.
       // So the first pointer move is ruled out on speed, and the pre-raster on
       // pixels, and the wave's launch is the only moment that is cheap on both.
-      if (mode === 'idle' && wavePos < 0) { wavePos = 0; lastNow = now; }
-      if (mode === 'spin' && wavePos >= 0) {
-        wavePos = -1; // drag resumed — stop writing and heal what is dirty
-        nodes.forEach(function (n) { if (n.dirty) startResolve(n); });
-        setTimeout(function () {
-          if (wavePos >= 0) return;
-          nodes.forEach(function (n) {
-            if (n.dirty && !n.resolving) { n.el.textContent = n.original; n.dirty = false; }
-          });
-        }, 900);
+      // The settle ARMS the wave; the still pointer below launches it. They are
+      // the same moment after a real stop and different moments when the hand
+      // merely slows, which is the case that used to write under a moving orb.
+      if (mode === 'idle' && wavePos < 0) armed = true;
+      if (mode === 'spin') {
+        armed = false;
+        // drag resumed — stop the wave. What it left dirty is NOT healed here:
+        // this is the first frame of a fast move, the worst frame on the page
+        // to spend on writes. The heal pass below takes it on the next rest.
+        if (wavePos >= 0) { wavePos = -1; healWanted = true; }
       }
     }
+    var still = pointerStill();
+    if (armed && still && wavePos < 0) { armed = false; wavePos = 0; lastNow = now; }
     // PROMOTION FAILSAFE, deliberately independent of the physics above.
     // The primary release path runs off tick()'s settle branch, which depends on
     // speed.v converging — and that is exactly what failed. This asks a question
@@ -2381,7 +2435,7 @@ try { (function () {
     }
     var dt = Math.min(now - lastNow, 300);
     lastNow = now;
-    if (wavePos >= 0) {
+    if (wavePos >= 0 && still) {   // a moving pointer holds the front where it is
       wavePos += 7 * dt; // ~3.5s for a full sweep of the coil
       var head = wavePos, tail = wavePos - BAND;
       if (now - lastMut >= 200) {
@@ -2395,19 +2449,26 @@ try { (function () {
         wavePos = -1; // one sweep per settle. Chaining was for the old
         // fire-while-moving design; now a still pointer would re-wave forever,
         // which is the battery cost this pass exists to remove.
-        nodes.forEach(function (n) { if (n.dirty) startResolve(n); });
-        setTimeout(function () {
-          if (wavePos >= 0) return;
-          nodes.forEach(function (n) {
-            if (n.dirty && !n.resolving) { n.el.textContent = n.original; n.dirty = false; }
-          });
-        }, 900);
+        healWanted = true;
       }
+    }
+    // THE HEAL PASS. One place, gated on the same still pointer as every other
+    // write. It replaces two things: the burst each wave-end and each cancel
+    // used to issue on the spot, and the 900ms timer behind them that restored
+    // whatever was still dirty with no regard for what the pointer was doing.
+    // startResolve() ignores fragments already mid-chain, and a chain stood down
+    // by a moving pointer sets healWanted again, so this repeats until the field
+    // is clean and then goes quiet.
+    if (healWanted && wavePos < 0 && still) {
+      healWanted = false;
+      nodes.forEach(function (n) { if (n.dirty) startResolve(n); });
     }
     schedule();
   }
   function schedule() {
-    if (mode === 'idle' && wavePos < 0) setTimeout(function () { requestAnimationFrame(loop); }, 250);
+    // armed and healWanted are both "waiting for the pointer to rest", and the
+    // rest should be answered on the frame it happens, not up to 250ms later.
+    if (mode === 'idle' && wavePos < 0 && !armed && !healWanted) setTimeout(function () { requestAnimationFrame(loop); }, 250);
     else requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
